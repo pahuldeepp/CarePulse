@@ -1,0 +1,18 @@
+{
+  "name": "carepack",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@anthropic-ai/claude-code": "^2.1.96",
+    "@openai/codex": "^0.118.0",
+    "coderabbitai-mcp": "^1.1.1"
+  }
+}

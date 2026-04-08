@@ -2,3 +2,15 @@ node_modules/
 .env
 .env.*
 .DS_Store
+.claude/settings.local.json
+CLAUDE.local.md
+
+# Build / language artifacts
+dist/
+build/
+coverage/
+*.pyc
+__pycache__/
+.venv/
+venv/
+*.egg-info/

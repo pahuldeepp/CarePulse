@@ -7,6 +7,6 @@
 | **Language** | Go |
 | **ORM** | No |
 
-**Responsibility:** Device provisioning saga, compensation flows, recovery worker (Redis state per blueprint).
+**Responsibility:** Device provisioning saga, compensation flows, recovery worker.
 
 **Status:** Scaffold only.

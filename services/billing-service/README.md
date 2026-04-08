@@ -7,6 +7,6 @@
 | **Language** | TypeScript |
 | **ORM** | Yes |
 
-**Responsibility:** Stripe integration, usage metering, subscription lifecycle (optional MySQL/CDC per blueprint).
+**Responsibility:** Stripe integration, usage metering, subscription lifecycle.
 
 **Status:** Scaffold only.

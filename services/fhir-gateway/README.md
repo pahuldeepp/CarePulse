@@ -9,4 +9,4 @@
 
 **Responsibility:** HL7 FHIR R4 API for EHR interop, CDS Hooks, `$export`.
 
-**Status:** Scaffold only — map Pydantic models to FHIR resources.
+**Status:** Scaffold only.

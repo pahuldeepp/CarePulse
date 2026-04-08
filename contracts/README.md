@@ -2,10 +2,10 @@
 
 **Blueprint:** Part V — gRPC + Protobuf, REST/OpenAPI, FHIR.
 
-Place shared definitions here:
+Shared definitions used by multiple services **in this monorepo**:
 
 - `proto/` — gRPC services (internal mesh)
 - `openapi/` — Partner REST + SDK generation
-- `fhir/` — FHIR R4 resource profiles / extensions (as code or JSON)
+- `fhir/` — FHIR R4 resource profiles / extensions
 
-Keep services thin: generate language-specific stubs into each service or into `packages/`.
+Generate stubs into `packages/` or per-service `src/generated/` from CI.

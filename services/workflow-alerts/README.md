@@ -7,6 +7,6 @@
 | **Language** | TypeScript |
 | **ORM** | Yes |
 
-**Responsibility:** Alert rules, deduplication, escalation, RabbitMQ dispatch, transactional outbox.
+**Responsibility:** Alert rules, deduplication, escalation, RabbitMQ dispatch, outbox.
 
 **Status:** Scaffold only.

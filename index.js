@@ -3,7 +3,7 @@
  */
 function main() {
   console.log(
-    "CarePulse — see README.md, docs/architecture/REPO_STRUCTURE.md, and CarePulse_Healthcare_Blueprint_v1.pdf"
+    "CarePulse monorepo — see README.md and docs/architecture/REPO_STRUCTURE.md"
   );
 }
 

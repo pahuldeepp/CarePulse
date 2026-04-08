@@ -7,6 +7,6 @@
 | **Language** | Python |
 | **ORM** | No |
 
-**Responsibility:** Index domain + CDC events into OpenSearch, fuzzy matching, bulk indexing (`elasticsearch-py` async).
+**Responsibility:** Index domain + CDC events into OpenSearch, bulk indexing.
 
 **Status:** Scaffold only.

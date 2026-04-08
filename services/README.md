@@ -1,6 +1,6 @@
-# Backend services
+# Backend microservices
 
-Polyglot microservices from **CarePulse_Healthcare_Blueprint_v1.pdf** §4 (service layer) and §5 (full map).
+Each subdirectory is a **separate microservice** (own build, own container image) living in this **monorepo**. Aligned with **CarePulse_Healthcare_Blueprint_v1.pdf** §4–§5.
 
 | Service | Folder |
 |---------|--------|
@@ -19,4 +19,4 @@ Polyglot microservices from **CarePulse_Healthcare_Blueprint_v1.pdf** §4 (servi
 | Background jobs | [`jobs-worker`](./jobs-worker) |
 | Notifications | [`notification-service`](./notification-service) |
 
-See [`../docs/architecture/REPO_STRUCTURE.md`](../docs/architecture/REPO_STRUCTURE.md) for the full repo map.
+See [`../docs/architecture/REPO_STRUCTURE.md`](../docs/architecture/REPO_STRUCTURE.md).

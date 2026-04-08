@@ -9,4 +9,4 @@
 
 **Responsibility:** Auth, persisted queries, complexity limits, caching, aggregation at the GraphQL edge.
 
-**Status:** Scaffold only — add Express app, Apollo, JWT/rate-limit middleware per blueprint Part V.
+**Status:** Scaffold only.

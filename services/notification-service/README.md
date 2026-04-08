@@ -7,6 +7,6 @@
 | **Language** | TypeScript |
 | **ORM** | No |
 
-**Responsibility:** SendGrid email, Twilio SMS, push notifications, templates (I/O-bound).
+**Responsibility:** SendGrid email, Twilio SMS, push notifications, templates.
 
 **Status:** Scaffold only.

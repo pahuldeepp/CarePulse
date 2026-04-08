@@ -7,6 +7,6 @@
 | **Language** | Go |
 | **ORM** | No |
 
-**Responsibility:** Kafka consumers building CQRS read models (batch upserts, worker pools).
+**Responsibility:** Kafka consumers building CQRS read models.
 
 **Status:** Scaffold only.

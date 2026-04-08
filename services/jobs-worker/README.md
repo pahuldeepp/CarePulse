@@ -7,6 +7,6 @@
 | **Language** | TypeScript |
 | **ORM** | No |
 
-**Responsibility:** Email/SMS/webhook/export jobs with retries, idempotency, DLQ.
+**Responsibility:** Email/SMS/webhook/export jobs, retries, idempotency, DLQ.
 
 **Status:** Scaffold only.

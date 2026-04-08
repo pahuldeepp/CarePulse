@@ -7,6 +7,6 @@
 | **Language** | Go |
 | **ORM** | No |
 
-**Responsibility:** Devices, wards, sites provisioning saga hooks, audit events, low-latency internal API.
+**Responsibility:** Devices, wards, sites provisioning saga hooks, audit events.
 
 **Status:** Scaffold only.

@@ -7,6 +7,6 @@
 | **Language** | TypeScript |
 | **ORM** | Yes (Prisma) |
 
-**Responsibility:** Patient CRUD, care plans, user management, domain logic, Postgres + RLS (`SET LOCAL app.current_tenant`).
+**Responsibility:** Patient CRUD, care plans, user management, Postgres + RLS.
 
-**Status:** Scaffold only — `nest new` or equivalent, Prisma schema under this service.
+**Status:** Scaffold only.

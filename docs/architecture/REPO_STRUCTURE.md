@@ -1,47 +1,52 @@
-# Repository structure ↔ CarePulse Blueprint v1
+# Monorepo structure ↔ CarePulse Blueprint v1
 
-This tree mirrors **Part I §4 Reference Architecture** and **Part II §5 Full Service Map** in `CarePulse_Healthcare_Blueprint_v1.pdf`.
+**Single GitHub repository** with **multiple microservices** as separate directories. Each folder under `services/` is a bounded context you can build, containerize, and deploy independently (own `Dockerfile`, CI job), while sharing one repo and `contracts/`.
+
+This mirrors **Part I §4 Reference Architecture** and **Part II §5 Full Service Map** in `CarePulse_Healthcare_Blueprint_v1.pdf`.
 
 ## Layer mapping
 
 ```
-Presentation (React/TS, RN)     → apps/web (web first; mobile noted in README)
+Presentation (React/TS, RN)     → apps/web
 API (GraphQL, ingress)          → services/gateway-graphql
-Polyglot services               → services/<name>
-Messaging (Kafka, RabbitMQ)     → infra/ + per-service consumers (TBD)
-Data stores                     → infra/ (Postgres, Redis, etc. — TBD)
+Polyglot microservices          → services/<name>
+Messaging (Kafka, RabbitMQ)     → infra/ + consumers inside each service
+Data stores                     → infra/ (compose / K8s / Terraform)
 ```
 
-## Service directories (13 + gateway)
+## `services/` — microservice directories
 
 | Directory | Framework (blueprint) | Role |
 |-----------|------------------------|------|
-| `services/gateway-graphql` | Express + Apollo | Auth, GraphQL, aggregation |
-| `services/telemetry-ingest` | Go | Device ingest, validation, outbox |
-| `services/projection-builder` | Go | Kafka → CQRS projections |
-| `services/asset-registry` | Go + gRPC | Devices/wards/sites provisioning |
-| `services/read-model-builder` | Go | Materialized views, rebuilds |
-| `services/saga-orchestrator` | Go | Provisioning saga, compensation |
-| `services/patient-service` | NestJS + Prisma | Patients, care plans, domain CRUD |
-| `services/workflow-alerts` | NestJS + Prisma | Alerts, escalation, RabbitMQ |
-| `services/billing-service` | NestJS + Prisma | Stripe, metering, subscriptions |
-| `services/risk-engine` | FastAPI + sklearn | Risk scoring, NEWS2, qSOFA |
-| `services/fhir-gateway` | FastAPI | HL7 FHIR R4, EHR interop |
-| `services/search-indexer` | Python asyncio | OpenSearch indexing |
-| `services/jobs-worker` | Express + amqplib | Async jobs, DLQ, idempotency |
-| `services/notification-service` | Express | Email/SMS/push |
-
-The blueprint groups **jobs** and **notifications** as separate bounded contexts; both are first-class folders here.
+| `gateway-graphql` | Express + Apollo | Auth, GraphQL, aggregation |
+| `telemetry-ingest` | Go | Device ingest, validation, outbox |
+| `projection-builder` | Go | Kafka → CQRS projections |
+| `asset-registry` | Go + gRPC | Devices/wards/sites provisioning |
+| `read-model-builder` | Go | Materialized views, rebuilds |
+| `saga-orchestrator` | Go | Provisioning saga, compensation |
+| `patient-service` | NestJS + Prisma | Patients, care plans, domain CRUD |
+| `workflow-alerts` | NestJS + Prisma | Alerts, escalation, RabbitMQ |
+| `billing-service` | NestJS + Prisma | Stripe, metering, subscriptions |
+| `risk-engine` | FastAPI + sklearn | Risk scoring, NEWS2, qSOFA |
+| `fhir-gateway` | FastAPI | HL7 FHIR R4, EHR interop |
+| `search-indexer` | Python asyncio | OpenSearch indexing |
+| `jobs-worker` | Express + amqplib | Async jobs, DLQ, idempotency |
+| `notification-service` | Express | Email/SMS/push |
 
 ## Other paths
 
-- **`contracts/`** — Protobuf, OpenAPI, shared JSON schemas (Part V).
-- **`packages/`** — Shared TS/JS libraries when introduced.
+- **`contracts/`** — Protobuf, OpenAPI, FHIR shared by services.
+- **`packages/`** — Shared TS/JS libraries (generated clients, types).
 - **`adr/`** — Architecture Decision Records (blueprint §46).
-- **`infra/`** — Docker, Helm/K8s, Terraform, CI templates (Part VII §39).
+- **`infra/`** — Docker Compose, Helm/K8s, Terraform, reusable CI.
 
-## Next implementation steps
+## CI/CD in a monorepo
 
-1. Add `docker-compose` (or k3d) under `infra/docker` for Postgres + Kafka + Redis MVP.
-2. Scaffold each service with its native toolchain (`go mod init`, `nest new`, `fastapi`, etc.).
-3. Land **ADR-0001** (tenant + RLS strategy) in `adr/` before PHI-bearing schema work.
+- Prefer **path-filtered** workflows (only rebuild images for changed `services/<name>`).
+- Publish images e.g. `ghcr.io/<org>/carepack-patient-service:<tag>` from the same repo.
+
+## Next steps
+
+1. Add `infra/docker/docker-compose.yml` for Postgres (+ optional Redis/Kafka).
+2. Scaffold the first service under `services/` with its own toolchain.
+3. Land **ADR-0001** (tenant + RLS) in `adr/` before PHI-bearing schema work.

@@ -7,6 +7,6 @@
 | **Language** | Python |
 | **ORM** | No |
 
-**Responsibility:** Streaming risk scoring, anomaly detection, NEWS2, qSOFA, async I/O + Pydantic.
+**Responsibility:** Streaming risk scoring, NEWS2, qSOFA, anomaly detection.
 
-**Status:** Scaffold only — `pyproject.toml` / venv per team preference.
+**Status:** Scaffold only.

@@ -1,6 +1,7 @@
 # Architecture Decision Records
 
-**Blueprint:** Part IX — §46 ADR Catalogue (15 ADRs in the reference doc).
+**Blueprint:** Part IX — §46 ADR Catalogue (15 ADRs in the reference doc).  
+ADRs here apply across all `services/` in this monorepo.
 
 ## Convention
 

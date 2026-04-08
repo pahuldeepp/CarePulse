@@ -11,5 +11,26 @@
       "Read(./.env)",
       "Read(./.env.*)"
     ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|Bash",
+        "command": "bash scripts/run-code-review-graph.sh update --skip-flows",
+        "timeout": 5000
+      }
+    ],
+    "SessionStart": [
+      {
+        "command": "bash scripts/run-code-review-graph.sh status",
+        "timeout": 3000
+      }
+    ],
+    "PreCommit": [
+      {
+        "command": "bash scripts/run-code-review-graph.sh detect-changes --brief",
+        "timeout": 10000
+      }
+    ]
   }
 }

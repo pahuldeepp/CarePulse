@@ -50,6 +50,8 @@ func main() {
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
 	<-quit
 
-	srv.Shutdown(ctx)
+	if err := srv.Shutdown(ctx); err != nil {
+		log.Error().Err(err).Msg("shutdown failed")
+	}
 	log.Info().Msg("saga-orchestrator stopped")
 }

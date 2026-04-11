@@ -7,6 +7,7 @@ const express = require('express');
 const { ApolloServer } = require('@apollo/server');
 const { expressMiddleware } = require('@apollo/server/express4');
 const { createLogger, format, transports } = require('winston');
+const crypto = require('node:crypto');
 
 // ── Logger (structured JSON) ──────────────────────────────────────────────────
 const logger = createLogger({

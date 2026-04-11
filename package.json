@@ -14,10 +14,11 @@
   "license": "ISC",
   "type": "commonjs",
   "devDependencies": {
-    "@eslint/js": "^9.39.0",
-    "eslint": "^9.39.0",
     "@anthropic-ai/claude-code": "^2.1.96",
+    "@eslint/js": "^9.39.0",
     "@openai/codex": "^0.118.0",
-    "coderabbitai-mcp": "^1.1.1"
+    "coderabbitai-mcp": "^1.1.1",
+    "eslint": "^9.39.0",
+    "typescript-eslint": "^8.58.1"
   }
 }

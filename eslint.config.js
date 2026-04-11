@@ -1,12 +1,13 @@
 "use strict";
 
 const js = require("@eslint/js");
+const tseslint = require("typescript-eslint");
 
 module.exports = [
   { ignores: ["node_modules/**"] },
-  js.configs.recommended,
   {
     files: ["**/*.js"],
+    ...js.configs.recommended,
     languageOptions: {
       ecmaVersion: 2022,
       sourceType: "commonjs",
@@ -20,5 +21,20 @@ module.exports = [
         require: "readonly",
       },
     },
+  },
+  {
+    files: ["**/*.ts"],
+    languageOptions: {
+      parser: tseslint.parser,
+      parserOptions: {
+        ecmaVersion: 2022,
+        sourceType: "module",
+      },
+      globals: {
+        console: "readonly",
+        process: "readonly",
+      },
+    },
+    rules: {},
   },
 ];

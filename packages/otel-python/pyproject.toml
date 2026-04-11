@@ -1,0 +1,9 @@
+[project]
+name = "carepack-otel-python"
+version = "0.1.0"
+dependencies = [
+    "opentelemetry-sdk>=1.25.0",
+    "opentelemetry-instrumentation-fastapi>=0.46b0",
+    "opentelemetry-instrumentation-httpx>=0.46b0",
+    "structlog>=24.1.0",
+]

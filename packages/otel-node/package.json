@@ -1,0 +1,19 @@
+{
+  "name": "@carepack/otel-node",
+  "version": "0.1.0",
+  "private": true,
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./correlation": "./correlation.js"
+  },
+  "dependencies": {
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.49.0",
+    "@opentelemetry/resources": "^1.25.0",
+    "@opentelemetry/sdk-node": "^0.52.0",
+    "@opentelemetry/sdk-trace-node": "^1.25.0",
+    "@opentelemetry/semantic-conventions": "^1.25.0",
+    "winston": "^3.13.0"
+  }
+}

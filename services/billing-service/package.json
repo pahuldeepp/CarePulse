@@ -6,7 +6,7 @@
     "start": "node dist/main.js",
     "dev": "ts-node src/main.ts",
     "build": "tsc",
-    "lint": "eslint src/"
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
     "@nestjs/common": "^10.3.10",

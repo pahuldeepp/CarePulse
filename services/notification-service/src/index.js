@@ -1,4 +1,6 @@
 'use strict';
+require('@carepack/otel-node');
+const { correlationFormat } = require('@carepack/otel-node/correlation');
 
 const amqp = require('amqplib');
 const express = require('express');
@@ -6,7 +8,7 @@ const { createLogger, format, transports } = require('winston');
 
 // ── Logger ────────────────────────────────────────────────────────────────────
 const logger = createLogger({
-  format: format.combine(format.timestamp(), format.json()),
+  format: format.combine(correlationFormat(), format.timestamp(), format.json()),
   transports: [new transports.Console()],
 });
 

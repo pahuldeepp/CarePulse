@@ -6,11 +6,12 @@ from contextlib import asynccontextmanager
 # OTel bootstrap must run before any other imports that touch HTTP/structlog
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'packages', 'otel-python'))
 from otel_bootstrap import configure_otel, instrument_fastapi  # noqa: E402
+
 configure_otel()
 
 import structlog
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel, Field, field_validator
 
 # ── Structured logging ────────────────────────────────────────────────────────

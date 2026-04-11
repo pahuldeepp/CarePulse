@@ -1,10 +1,10 @@
 import os
 import sys
 from contextlib import asynccontextmanager
-from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'packages', 'otel-python'))
 from otel_bootstrap import configure_otel, instrument_fastapi  # noqa: E402
+
 configure_otel()
 
 import structlog

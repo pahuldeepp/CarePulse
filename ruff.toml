@@ -1,0 +1,17 @@
+# Ruff configuration for CarePulse Python services
+
+line-length = 120
+
+[lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E402",  # Module level import not at top — required by OTel bootstrap pattern
+    "E701",  # Multiple statements on one line — intentional in clinical scoring tables
+]
+
+[lint.per-file-ignores]
+"packages/otel-python/*.py" = ["INP001"]
+
+[format]
+quote-style = "double"
+indent-style = "space"

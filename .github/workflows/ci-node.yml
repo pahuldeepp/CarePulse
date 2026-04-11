@@ -45,7 +45,10 @@ jobs:
           cache: 'npm'
           cache-dependency-path: ${{ matrix.service }}/package.json
 
-      - name: Install dependencies
+      - name: Install root dependencies (eslint config lives here)
+        run: npm install --prefer-offline
+
+      - name: Install service dependencies
         working-directory: ${{ matrix.service }}
         run: npm install --prefer-offline
 

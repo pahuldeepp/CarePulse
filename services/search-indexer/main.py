@@ -6,11 +6,10 @@ S11: OpenSearch added to Docker Compose.
 """
 
 import asyncio
-import json
 import os
-from aiohttp import web
 
 import structlog
+from aiohttp import web
 
 # ── Structured logging ────────────────────────────────────────────────────────
 structlog.configure(

@@ -1,0 +1,62 @@
+name: CI — Node
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'services/gateway-graphql/**'
+      - 'services/jobs-worker/**'
+      - 'services/notification-service/**'
+      - 'services/patient-service/**'
+      - 'services/workflow-alerts/**'
+      - 'services/billing-service/**'
+      - 'packages/otel-node/**'
+  pull_request:
+    paths:
+      - 'services/gateway-graphql/**'
+      - 'services/jobs-worker/**'
+      - 'services/notification-service/**'
+      - 'services/patient-service/**'
+      - 'services/workflow-alerts/**'
+      - 'services/billing-service/**'
+      - 'packages/otel-node/**'
+
+jobs:
+  lint-and-test:
+    name: eslint + jest
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        service:
+          - services/gateway-graphql
+          - services/jobs-worker
+          - services/notification-service
+          - services/patient-service
+          - services/workflow-alerts
+          - services/billing-service
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ${{ matrix.service }}/package.json
+
+      - name: Install dependencies
+        working-directory: ${{ matrix.service }}
+        run: npm install --prefer-offline
+
+      - name: ESLint
+        working-directory: ${{ matrix.service }}
+        run: npm run lint --if-present
+
+      - name: TypeScript build check
+        working-directory: ${{ matrix.service }}
+        run: npm run build --if-present
+
+      - name: Jest tests
+        working-directory: ${{ matrix.service }}
+        run: npm test --if-present

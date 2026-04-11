@@ -1,9 +1,15 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
+import { createLogger, format, transports } from 'winston';
 import { AppModule } from './app.module';
 
+const logger = createLogger({
+  format: format.combine(format.timestamp(), format.json()),
+  transports: [new transports.Console()],
+});
+
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { logger: false });
 
   app.setGlobalPrefix('v1');
 
@@ -12,7 +18,7 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port);
-  console.log(JSON.stringify({ msg: 'patient-service listening', port }));
+  logger.info({ msg: 'patient-service listening', port: Number(port) });
 }
 
 bootstrap();

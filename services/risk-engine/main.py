@@ -1,6 +1,12 @@
 import asyncio
 import os
+import sys
 from contextlib import asynccontextmanager
+
+# OTel bootstrap must run before any other imports that touch HTTP/structlog
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'packages', 'otel-python'))
+from otel_bootstrap import configure_otel, instrument_fastapi  # noqa: E402
+configure_otel()
 
 import structlog
 import uvicorn
@@ -138,6 +144,7 @@ async def lifespan(app: FastAPI):
     log.info("risk_engine_stopped")
 
 app = FastAPI(title="risk-engine", version="0.1.0", lifespan=lifespan)
+instrument_fastapi(app)
 
 @app.get("/healthz")
 async def health():

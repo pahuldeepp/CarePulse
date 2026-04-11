@@ -1,4 +1,7 @@
 'use strict';
+// OTel must be the very first import — instruments HTTP + Express automatically
+require('@carepack/otel-node');
+const { correlationFormat } = require('@carepack/otel-node/correlation');
 
 const express = require('express');
 const { ApolloServer } = require('@apollo/server');
@@ -7,7 +10,7 @@ const { createLogger, format, transports } = require('winston');
 
 // ── Logger (structured JSON) ──────────────────────────────────────────────────
 const logger = createLogger({
-  format: format.combine(format.timestamp(), format.json()),
+  format: format.combine(correlationFormat(), format.timestamp(), format.json()),
   transports: [new transports.Console()],
 });
 

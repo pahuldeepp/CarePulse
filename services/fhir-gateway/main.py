@@ -1,19 +1,17 @@
 import os
+import sys
 from contextlib import asynccontextmanager
 from datetime import datetime
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'packages', 'otel-python'))
+from otel_bootstrap import configure_otel, instrument_fastapi  # noqa: E402
+configure_otel()
 
 import structlog
 import uvicorn
 from fastapi import FastAPI, HTTPException, Query
 from pydantic import BaseModel
 
-# ── Structured logging ────────────────────────────────────────────────────────
-structlog.configure(
-    processors=[
-        structlog.processors.TimeStamper(fmt="iso"),
-        structlog.processors.JSONRenderer(),
-    ]
-)
 log = structlog.get_logger()
 
 # ── FHIR R4 resource models ───────────────────────────────────────────────────
@@ -46,6 +44,7 @@ async def lifespan(app: FastAPI):
     log.info("fhir_gateway_stopped")
 
 app = FastAPI(title="fhir-gateway", version="0.1.0", lifespan=lifespan)
+instrument_fastapi(app)
 
 @app.get("/healthz")
 async def health():

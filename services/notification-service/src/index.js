@@ -1,4 +1,6 @@
 'use strict';
+require('@carepack/otel-node');
+const { correlationFormat } = require('@carepack/otel-node/correlation');
 
 const amqp = require('amqplib');
 const express = require('express');

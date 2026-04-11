@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/carepack/otel-go"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
@@ -168,6 +169,13 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	// Bootstrap OTel — stdout exporter; swap for OTLP in S9
+	otelShutdown, err := otelsetup.Init(ctx, "telemetry-ingest", "0.1.0")
+	if err != nil {
+		log.Fatal().Err(err).Msg("otel init failed")
+	}
+	defer func() { _ = otelShutdown(ctx) }()
 
 	dsn := getEnv("DATABASE_URL", "postgres://carepack:carepack@localhost:5433/carepack")
 	pool, err := pgxpool.New(ctx, dsn)

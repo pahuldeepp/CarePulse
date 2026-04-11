@@ -35,7 +35,12 @@ function buildContext({ req, pool }) {
       await client.query('COMMIT');
       return result.rows;
     } catch (err) {
-      await client.query('ROLLBACK');
+      // Preserve original error even if ROLLBACK itself fails
+      try {
+        await client.query('ROLLBACK');
+      } catch (rollbackErr) {
+        console.error('ROLLBACK failed:', rollbackErr);
+      }
       throw err;
     } finally {
       client.release();

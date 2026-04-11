@@ -23,9 +23,14 @@ func main() {
 
 	log.Info().Msg("projection-builder starting")
 
-	// S2: Kafka consumer loop goes here
-	// topics: domain.patient.created, domain.telemetry.ingested
-	// action: upsert patient_dashboard_projection in Postgres
+	// consumerErr receives a non-nil error if the consumer exits unexpectedly.
+	// Using a channel instead of log.Fatal avoids killing the process from a goroutine.
+	consumerErr := make(chan error, 1)
+	go func() {
+		if err := StartConsumer(ctx); err != nil {
+			consumerErr <- err
+		}
+	}()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -36,13 +41,20 @@ func main() {
 	go func() {
 		log.Info().Str("addr", srv.Addr).Msg("projection-builder listening")
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
-			log.Fatal().Err(err).Msg("server error")
+			log.Error().Err(err).Msg("server error")
 		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
-	<-quit
+
+	select {
+	case <-quit:
+		log.Info().Msg("shutdown signal received")
+	case err := <-consumerErr:
+		log.Error().Err(err).Msg("consumer exited with error — shutting down")
+		cancel()
+	}
 
 	if err := srv.Shutdown(ctx); err != nil {
 		log.Error().Err(err).Msg("shutdown failed")

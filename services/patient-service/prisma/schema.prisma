@@ -1,0 +1,115 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  CLINICIAN
+  VIEWER
+}
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  users    User[]
+  patients Patient[]
+
+  @@map("tenants")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  email     String
+  role      Role     @default(VIEWER)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id])
+
+  @@unique([tenantId, email])
+  @@map("users")
+}
+
+model Patient {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  mrn         String
+  firstName   String    @map("first_name")
+  lastName    String    @map("last_name")
+  dateOfBirth DateTime  @map("date_of_birth")
+  ward        String?
+  status      String    @default("active")
+  deletedAt   DateTime? @map("deleted_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  tenant       Tenant        @relation(fields: [tenantId], references: [id])
+  alerts       Alert[]
+  carePlans    CarePlan[]
+  outboxEvents OutboxEvent[]
+
+  @@unique([tenantId, mrn])
+  @@map("patients")
+}
+
+model Alert {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  patientId String   @map("patient_id")
+  dedupeKey String   @map("dedupe_key")
+  severity  String
+  status    String   @default("open")
+  version   Int      @default(0)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  patient Patient @relation(fields: [patientId], references: [id])
+
+  @@unique([tenantId, dedupeKey])
+  @@map("alerts")
+}
+
+model CarePlan {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  patientId String   @map("patient_id")
+  title     String
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  patient Patient @relation(fields: [patientId], references: [id])
+
+  @@map("care_plans")
+}
+
+model OutboxEvent {
+  id          String    @id @default(uuid())
+  tenantId    String    @map("tenant_id")
+  aggregateId String    @map("aggregate_id")
+  eventType   String    @map("event_type")
+  payload     Json
+  processedAt DateTime? @map("processed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  patient Patient @relation(fields: [aggregateId], references: [id])
+
+  @@index([processedAt, createdAt])
+  @@map("outbox_events")
+}
+
+model ProcessedEvent {
+  id          String   @id
+  processedAt DateTime @default(now()) @map("processed_at")
+
+  @@map("processed_events")
+}

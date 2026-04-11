@@ -7,7 +7,7 @@ const js = require("@eslint/js");
 // service's package.json lint script). TypeScript ESLint is wired in S3.
 
 module.exports = [
-  { ignores: ["node_modules/**", "dist/**", "**/*.ts"] },
+  { ignores: ["node_modules/**", "**/dist/**", "**/*.ts"] },
   {
     files: ["**/*.js"],
     ...js.configs.recommended,

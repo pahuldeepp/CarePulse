@@ -42,6 +42,9 @@ jobs:
           cache: true
           cache-dependency-path: ${{ matrix.module }}/go.sum
 
+      - name: Sync workspace dependencies
+        run: go work sync
+
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:

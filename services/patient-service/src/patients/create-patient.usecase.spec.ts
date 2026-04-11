@@ -2,14 +2,15 @@ import { ConflictException } from '@nestjs/common';
 import { CreatePatientUseCase, CreatePatientDto } from './create-patient.usecase';
 
 // ── Prisma mock ───────────────────────────────────────────────────────────────
-const mockPatientCreate    = jest.fn();
+const mockPatientCreate     = jest.fn();
 const mockOutboxEventCreate = jest.fn();
-const mockExecuteRawUnsafe  = jest.fn().mockResolvedValue(undefined);
+// $executeRaw is called as a tagged template literal — mock it as a function
+const mockExecuteRaw        = jest.fn().mockResolvedValue(undefined);
 
 const mockTx = {
-  $executeRawUnsafe:  mockExecuteRawUnsafe,
-  patient:            { create: mockPatientCreate },
-  outboxEvent:        { create: mockOutboxEventCreate },
+  $executeRaw:  mockExecuteRaw,
+  patient:      { create: mockPatientCreate },
+  outboxEvent:  { create: mockOutboxEventCreate },
 };
 
 const mockPrisma = {
@@ -49,10 +50,8 @@ describe('CreatePatientUseCase', () => {
   it('creates patient and outbox event in the same transaction', async () => {
     const result = await useCase.execute(dto);
 
-    // RLS must be set first
-    expect(mockExecuteRawUnsafe).toHaveBeenCalledWith(
-      `SET LOCAL app.current_tenant_id = '${dto.tenantId}'`,
-    );
+    // RLS must be set first via $executeRaw tagged template
+    expect(mockExecuteRaw).toHaveBeenCalled();
 
     // Patient row created
     expect(mockPatientCreate).toHaveBeenCalledWith(

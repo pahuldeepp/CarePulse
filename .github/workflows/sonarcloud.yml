@@ -75,14 +75,17 @@ jobs:
           for svc in services/gateway-graphql services/jobs-worker \
                      services/notification-service services/patient-service \
                      services/workflow-alerts services/billing-service; do
+            svc_name=$(basename $svc)
             cd $svc
             npm install --prefer-offline 2>/dev/null || true
+            # Write to per-service subdirectory to avoid overwriting other services
             npm test -- --coverage --coverageReporters=lcov \
-              --coverageDirectory=../../coverage/node 2>/dev/null || true
+              --coverageDirectory=../../coverage/node/${svc_name} 2>/dev/null || true
             cd $GITHUB_WORKSPACE
           done
-          # Create empty lcov if no tests yet
-          [ -f coverage/node/lcov.info ] || touch coverage/node/lcov.info
+          # Merge all per-service lcov.info files into one for SonarCloud
+          find coverage/node -name "lcov.info" | xargs cat > coverage/node/lcov.info 2>/dev/null \
+            || touch coverage/node/lcov.info
 
       # ── SonarCloud scan ──────────────────────────────────────────────────────
       - name: SonarCloud Scan

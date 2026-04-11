@@ -6,6 +6,8 @@
 [![CI — Go](https://github.com/pahuldeepp/CarePulse/actions/workflows/ci-go.yml/badge.svg)](https://github.com/pahuldeepp/CarePulse/actions/workflows/ci-go.yml)
 [![CI — Node](https://github.com/pahuldeepp/CarePulse/actions/workflows/ci-node.yml/badge.svg)](https://github.com/pahuldeepp/CarePulse/actions/workflows/ci-node.yml)
 [![CI — Python](https://github.com/pahuldeepp/CarePulse/actions/workflows/ci-python.yml/badge.svg)](https://github.com/pahuldeepp/CarePulse/actions/workflows/ci-python.yml)
+[![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=pahuldeepp_CarePulse&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=pahuldeepp_CarePulse)
+[![Coverage](https://sonarcloud.io/api/project_badges/measure?project=pahuldeepp_CarePulse&metric=coverage)](https://sonarcloud.io/summary/new_code?id=pahuldeepp_CarePulse)
 
 ---
 
@@ -83,8 +85,10 @@ Copy `.env.example` to `.env` (gitignored) before running services locally.
 
 | Variable | Default | Used by |
 |----------|---------|---------|
-| `DATABASE_URL` | `postgres://carepack:carepack@localhost:5433/carepack` | Go services |
-| `KAFKA_BOOTSTRAP` | `localhost:9092` | Python + Go services |
+| `DATABASE_URL` | `postgres://carepack:carepack@localhost:5433/carepack` | Go + Node services |
+| `KAFKA_BROKERS` | `localhost:9092` | All services |
+| `KAFKA_REPLICATION_FACTOR` | `3` (prod) / `1` (local) | patient-service |
+| `JWT_SECRET` | — | gateway-graphql |
 | `RABBITMQ_URL` | `amqp://carepack:carepack@localhost:5672/carepack` | Node services |
 | `REDIS_URL` | `redis://localhost:6379` | gateway-graphql |
 | `OTEL_SERVICE_NAME` | service name | all services |
@@ -113,31 +117,43 @@ CarePulse/
 
 ## Services
 
-| Service | Runtime | Port | Sprint |
-|---------|---------|------|--------|
-| telemetry-ingest | Go | 8080 | S1 |
-| projection-builder | Go | 8081 | S1 |
-| asset-registry | Go | 8082 | S1 |
-| saga-orchestrator | Go | 8083 | S1 |
-| risk-engine | Python/FastAPI | 8001 | S1 |
-| fhir-gateway | Python/FastAPI | 8002 | S1 |
-| search-indexer | Python asyncio | 8084 | S1 |
-| gateway-graphql | Node/Express/Apollo | 4000 | S1 |
-| jobs-worker | Node/RabbitMQ | 4001 | S1 |
-| notification-service | Node/RabbitMQ | 4002 | S1 |
-| patient-service | NestJS/Prisma | 3000 | S1 |
-| workflow-alerts | NestJS | 3001 | S1 |
-| billing-service | NestJS/Stripe | 3002 | S1 |
+| Service | Runtime | Port | Sprint | Status |
+|---------|---------|------|--------|--------|
+| telemetry-ingest | Go | 8080 | S1 | ✅ |
+| projection-builder | Go | 8081 | S2 | ✅ Kafka consumer + dashboard upsert |
+| asset-registry | Go | 8082 | S1 | ✅ |
+| saga-orchestrator | Go | 8083 | S1 | ✅ |
+| risk-engine | Python/FastAPI | 8001 | S3 | 🔜 NEWS2 scoring |
+| fhir-gateway | Python/FastAPI | 8002 | S1 | ✅ |
+| search-indexer | Python asyncio | 8084 | S1 | ✅ |
+| gateway-graphql | Node/Express/Apollo | 4000 | S2 | ✅ JWT auth + Patient GraphQL |
+| jobs-worker | Node/RabbitMQ | 4001 | S1 | ✅ |
+| notification-service | Node/RabbitMQ | 4002 | S1 | ✅ |
+| patient-service | NestJS/Prisma | 3000 | S2 | ✅ Outbox pattern + RLS |
+| workflow-alerts | NestJS | 3001 | S3 | 🔜 Alert pipeline |
+| billing-service | NestJS/Stripe | 3002 | S1 | ✅ |
+
+### S2 highlights
+
+- **Multi-tenant Postgres** — Row-Level Security on all tables; `app.current_tenant_id` set per transaction
+- **Transactional outbox** — patient + Kafka event written atomically; relay ensures no lost events
+- **Kafka topics** — `patient.created`, `patient.updated`, `alert.triggered` provisioned on boot
+- **projection-builder** — Go consumer upserts `patient_dashboard_projection` read model
+- **GraphQL gateway** — HS256 JWT auth, RBAC role guard, `patient` / `patients` queries with tenant isolation
+- **Observability** — zerolog/Winston/structlog with OTel trace_id + span_id correlation
 
 ---
 
 ## Tooling
 
 ```bash
-npm run lint      # ESLint on root tooling
-npm run claude    # Claude Code agent
-npm run codex     # Codex CLI
-go work sync      # sync Go workspace
+npm run lint        # ESLint on root tooling + Node services
+npm run lint:py     # Ruff lint on Python services
+npm run lint:go     # golangci-lint on telemetry-ingest
+npm run claude      # Claude Code agent
+npm run codex       # Codex CLI
+go work sync        # sync Go workspace
+pre-commit run -a   # run all pre-commit hooks manually
 ```
 
 ---

@@ -50,21 +50,26 @@ const resolvers = {
     health: () => 'ok',
 
     patient: async (_parent, { id }, ctx) => {
+      // Explicit tenant_id filter as defence-in-depth alongside RLS
       const rows = await ctx.tenantQuery(
         `SELECT id, tenant_id, mrn, full_name, ward, status, news2_score, updated_at
          FROM patient_dashboard_projection
-         WHERE id = $1`,
-        [id],
+         WHERE id = $1
+           AND tenant_id = $2`,
+        [id, ctx.user.tenantId],
       );
       if (!rows.length) return null;
       return mapRow(rows[0]);
     },
 
     patients: async (_parent, _args, ctx) => {
+      // Explicit tenant_id filter as defence-in-depth alongside RLS
       const rows = await ctx.tenantQuery(
         `SELECT id, tenant_id, mrn, full_name, ward, status, news2_score, updated_at
          FROM patient_dashboard_projection
+         WHERE tenant_id = $1
          ORDER BY updated_at DESC`,
+        [ctx.user.tenantId],
       );
       return rows.map(mapRow);
     },

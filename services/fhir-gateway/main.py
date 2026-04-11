@@ -2,7 +2,7 @@ import os
 import sys
 from contextlib import asynccontextmanager
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'packages', 'otel-python'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "packages", "otel-python"))
 from otel_bootstrap import configure_otel, instrument_fastapi  # noqa: E402
 
 configure_otel()
@@ -17,6 +17,7 @@ log = structlog.get_logger()
 # ── FHIR R4 resource models ───────────────────────────────────────────────────
 # Full resource set wired in S12 (Patient, Observation, Device, Condition, Encounter)
 
+
 class FHIRPatient(BaseModel):
     resourceType: str = "Patient"
     id: str
@@ -25,6 +26,7 @@ class FHIRPatient(BaseModel):
     name: list[dict] = []
     birthDate: str | None = None
     gender: str | None = None
+
 
 class FHIRObservation(BaseModel):
     resourceType: str = "Observation"
@@ -35,7 +37,9 @@ class FHIRObservation(BaseModel):
     valueQuantity: dict | None = None
     code: dict = {}
 
+
 # ── FastAPI app ───────────────────────────────────────────────────────────────
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -43,14 +47,18 @@ async def lifespan(app: FastAPI):
     yield
     log.info("fhir_gateway_stopped")
 
+
 app = FastAPI(title="fhir-gateway", version="0.1.0", lifespan=lifespan)
 instrument_fastapi(app)
+
 
 @app.get("/healthz")
 async def health():
     return {"status": "ok"}
 
+
 # ── FHIR Patient endpoints ────────────────────────────────────────────────────
+
 
 @app.get("/fhir/R4/Patient/{patient_id}", response_model=FHIRPatient)
 async def get_patient(patient_id: str):
@@ -61,6 +69,7 @@ async def get_patient(patient_id: str):
     log.info("fhir_patient_read", patient_id=patient_id)
     # S4: gRPC call to patient-service goes here
     raise HTTPException(status_code=501, detail="wired in S4")
+
 
 @app.get("/fhir/R4/Patient")
 async def search_patients(
@@ -81,14 +90,18 @@ async def search_patients(
     # S12: OpenSearch query goes here
     return {"resourceType": "Bundle", "type": "searchset", "total": 0, "entry": []}
 
+
 # ── FHIR Observation endpoints ────────────────────────────────────────────────
+
 
 @app.get("/fhir/R4/Observation/{obs_id}", response_model=FHIRObservation)
 async def get_observation(obs_id: str):
     log.info("fhir_observation_read", obs_id=obs_id)
     raise HTTPException(status_code=501, detail="wired in S4")
 
+
 # ── CDS Hooks (S12) ───────────────────────────────────────────────────────────
+
 
 @app.get("/cds-services")
 async def cds_discovery():
@@ -104,6 +117,7 @@ async def cds_discovery():
         ]
     }
 
+
 @app.post("/cds-services/carepack-risk-alert")
 async def cds_risk_alert(body: dict):
     """
@@ -113,6 +127,7 @@ async def cds_risk_alert(body: dict):
     log.info("cds_hook_called", hook="patient-view")
     # S12: call risk-engine, return FHIR cards if NEWS2 >= 5
     return {"cards": []}
+
 
 if __name__ == "__main__":
     uvicorn.run(

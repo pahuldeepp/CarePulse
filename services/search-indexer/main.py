@@ -20,21 +20,21 @@ structlog.configure(
 )
 log = structlog.get_logger()
 
-KAFKA_BOOTSTRAP  = os.getenv("KAFKA_BOOTSTRAP", "localhost:9092")
-OPENSEARCH_URL   = os.getenv("OPENSEARCH_URL", "http://localhost:9200")
-BATCH_SIZE       = int(os.getenv("BATCH_SIZE", "200"))  # docs per bulk request
-FLUSH_INTERVAL   = float(os.getenv("FLUSH_INTERVAL", "1.0"))  # seconds
+KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "localhost:9092")
+OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://localhost:9200")
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "200"))  # docs per bulk request
+FLUSH_INTERVAL = float(os.getenv("FLUSH_INTERVAL", "1.0"))  # seconds
 
 # ── Index definitions (S6) ────────────────────────────────────────────────────
 INDICES = {
     "carepack-patients": {
         "mappings": {
             "properties": {
-                "tenant_id":  {"type": "keyword"},
-                "mrn":        {"type": "keyword"},
-                "name":       {"type": "text"},
-                "ward":       {"type": "keyword"},
-                "status":     {"type": "keyword"},
+                "tenant_id": {"type": "keyword"},
+                "mrn": {"type": "keyword"},
+                "name": {"type": "text"},
+                "ward": {"type": "keyword"},
+                "status": {"type": "keyword"},
                 "updated_at": {"type": "date"},
             }
         }
@@ -42,17 +42,18 @@ INDICES = {
     "carepack-alerts": {
         "mappings": {
             "properties": {
-                "tenant_id":   {"type": "keyword"},
-                "severity":    {"type": "keyword"},
-                "status":      {"type": "keyword"},
-                "patient_id":  {"type": "keyword"},
-                "created_at":  {"type": "date"},
+                "tenant_id": {"type": "keyword"},
+                "severity": {"type": "keyword"},
+                "status": {"type": "keyword"},
+                "patient_id": {"type": "keyword"},
+                "created_at": {"type": "date"},
             }
         }
     },
 }
 
 # ── Bulk indexer ──────────────────────────────────────────────────────────────
+
 
 class BulkIndexer:
     """
@@ -88,7 +89,9 @@ class BulkIndexer:
             async with self._lock:
                 await self._flush()
 
+
 # ── Kafka consumer ────────────────────────────────────────────────────────────
+
 
 async def consume(indexer: BulkIndexer):
     """
@@ -105,10 +108,13 @@ async def consume(indexer: BulkIndexer):
 
     await asyncio.sleep(999999)  # hold coroutine open until cancelled
 
+
 # ── Entry point ───────────────────────────────────────────────────────────────
+
 
 async def healthz_handler(_request):
     return web.Response(text="ok", status=200)
+
 
 async def start_healthz():
     app = web.Application()
@@ -120,6 +126,7 @@ async def start_healthz():
     await site.start()
     log.info("search_indexer_healthz_listening", port=port)
 
+
 async def main():
     log.info("search_indexer_starting", kafka=KAFKA_BOOTSTRAP, opensearch=OPENSEARCH_URL)
 
@@ -129,6 +136,7 @@ async def main():
         tg.create_task(start_healthz())
         tg.create_task(indexer.run_flush_loop())
         tg.create_task(consume(indexer))
+
 
 if __name__ == "__main__":
     asyncio.run(main())

@@ -21,8 +21,17 @@ on:
 
 jobs:
   lint-and-test:
-    name: golangci-lint + go test
+    name: golangci-lint + go test (${{ matrix.module }})
     runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        module:
+          - services/telemetry-ingest
+          - services/projection-builder
+          - services/asset-registry
+          - services/saga-orchestrator
+          - packages/otel-go
 
     steps:
       - uses: actions/checkout@v4
@@ -31,15 +40,15 @@ jobs:
         with:
           go-version: '1.22'
           cache: true
-
-      - name: Download workspace dependencies
-        run: go work sync
+          cache-dependency-path: ${{ matrix.module }}/go.sum
 
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v6
         with:
           version: v1.59
+          working-directory: ${{ matrix.module }}
           args: --timeout=5m ./...
 
       - name: go test
+        working-directory: ${{ matrix.module }}
         run: go test ./... -race -count=1 -timeout=120s

@@ -18,8 +18,17 @@ async function startConsumer() {
   const conn    = await amqp.connect(RABBITMQ_URL);
   const channel = await conn.createChannel();
 
-  // durable queue survives broker restart
-  await channel.assertQueue(QUEUE, { durable: true });
+  // durable queue with dead-letter exchange for failed jobs
+  await channel.assertExchange('jobs.dlx', 'direct', { durable: true });
+  await channel.assertQueue('jobs.default.dlq', { durable: true });
+  await channel.bindQueue('jobs.default.dlq', 'jobs.dlx', QUEUE);
+  await channel.assertQueue(QUEUE, {
+    durable: true,
+    arguments: {
+      'x-dead-letter-exchange': 'jobs.dlx',
+      'x-dead-letter-routing-key': QUEUE,
+    },
+  });
 
   // prefetch 1 — don't give this worker more than 1 job at a time
   // ensures jobs are distributed evenly across multiple worker instances

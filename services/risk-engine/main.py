@@ -4,8 +4,8 @@ from contextlib import asynccontextmanager
 
 import structlog
 import uvicorn
-from fastapi import FastAPI
-from pydantic import BaseModel, Field
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel, Field, field_validator
 
 # ── Structured logging ────────────────────────────────────────────────────────
 structlog.configure(
@@ -28,6 +28,27 @@ class TelemetryReading(BaseModel):
     temperature: float | None = None        # °C           (NEWS2)
     consciousness: str | None = None        # A/V/P/U      (NEWS2)
     gcs: int | None = None                  # 3-15         (qSOFA)
+
+    @field_validator('heart_rate')
+    @classmethod
+    def heart_rate_positive(cls, v):
+        if v is not None and v <= 0:
+            raise ValueError('heart_rate must be > 0')
+        return v
+
+    @field_validator('gcs')
+    @classmethod
+    def gcs_range(cls, v):
+        if v is not None and not (3 <= v <= 15):
+            raise ValueError('gcs must be between 3 and 15')
+        return v
+
+    @field_validator('consciousness')
+    @classmethod
+    def consciousness_valid(cls, v):
+        if v is not None and v.upper() not in ('A', 'V', 'P', 'U'):
+            raise ValueError("consciousness must be one of A, V, P, U")
+        return v
 
 class RiskScore(BaseModel):
     device_id: str

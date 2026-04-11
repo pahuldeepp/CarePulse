@@ -91,26 +91,30 @@ func (ing *Ingestor) runWorker(ctx context.Context, id int) {
 		case r, ok := <-ing.queue:
 			if !ok {
 				if len(batch) > 0 {
-					ing.flush(ctx, batch, logger)
+					if err := ing.flush(ctx, batch, logger); err != nil {
+						logger.Error().Err(err).Msg("final flush failed, readings may be lost")
+					}
 				}
 				return
 			}
 			batch = append(batch, r)
 			if len(batch) >= batchSize {
-				ing.flush(ctx, batch, logger)
-				batch = batch[:0]
+				if err := ing.flush(ctx, batch, logger); err == nil {
+					batch = batch[:0]
+				}
 			}
 		case <-ticker.C:
 			if len(batch) > 0 {
-				ing.flush(ctx, batch, logger)
-				batch = batch[:0]
+				if err := ing.flush(ctx, batch, logger); err == nil {
+					batch = batch[:0]
+				}
 			}
 		}
 	}
 }
 
 // flush writes a batch to Postgres using COPY — fastest bulk insert method.
-func (ing *Ingestor) flush(ctx context.Context, batch []Reading, logger zerolog.Logger) {
+func (ing *Ingestor) flush(ctx context.Context, batch []Reading, logger zerolog.Logger) error {
 	start := time.Now()
 
 	rows := make([][]any, len(batch))
@@ -126,13 +130,14 @@ func (ing *Ingestor) flush(ctx context.Context, batch []Reading, logger zerolog.
 	)
 	if err != nil {
 		logger.Error().Err(err).Int("batch_size", len(batch)).Msg("flush failed")
-		return
+		return err
 	}
 
 	logger.Info().
 		Int("rows", len(batch)).
 		Dur("took", time.Since(start)).
 		Msg("batch flushed")
+	return nil
 }
 
 // ── HTTP handler ──────────────────────────────────────────────────────────────

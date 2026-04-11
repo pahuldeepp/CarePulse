@@ -8,6 +8,7 @@ S11: OpenSearch added to Docker Compose.
 import asyncio
 import json
 import os
+from aiohttp import web
 
 import structlog
 
@@ -107,12 +108,26 @@ async def consume(indexer: BulkIndexer):
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+async def healthz_handler(_request):
+    return web.Response(text="ok", status=200)
+
+async def start_healthz():
+    app = web.Application()
+    app.router.add_get("/healthz", healthz_handler)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv("PORT", "8084"))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    log.info("search_indexer_healthz_listening", port=port)
+
 async def main():
     log.info("search_indexer_starting", kafka=KAFKA_BOOTSTRAP, opensearch=OPENSEARCH_URL)
 
     indexer = BulkIndexer()
 
     async with asyncio.TaskGroup() as tg:
+        tg.create_task(start_healthz())
         tg.create_task(indexer.run_flush_loop())
         tg.create_task(consume(indexer))
 

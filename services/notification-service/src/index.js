@@ -30,8 +30,25 @@ async function startConsumer() {
   const conn    = await amqp.connect(RABBITMQ_URL);
   const channel = await conn.createChannel();
 
-  await channel.assertQueue(EMAIL_QUEUE, { durable: true });
-  await channel.assertQueue(ALERT_QUEUE, { durable: true });
+  await channel.assertExchange('notifications.dlx', 'direct', { durable: true });
+  await channel.assertQueue('email.send.dlq', { durable: true });
+  await channel.assertQueue('alert.notify.dlq', { durable: true });
+  await channel.bindQueue('email.send.dlq', 'notifications.dlx', EMAIL_QUEUE);
+  await channel.bindQueue('alert.notify.dlq', 'notifications.dlx', ALERT_QUEUE);
+  await channel.assertQueue(EMAIL_QUEUE, {
+    durable: true,
+    arguments: {
+      'x-dead-letter-exchange': 'notifications.dlx',
+      'x-dead-letter-routing-key': EMAIL_QUEUE,
+    },
+  });
+  await channel.assertQueue(ALERT_QUEUE, {
+    durable: true,
+    arguments: {
+      'x-dead-letter-exchange': 'notifications.dlx',
+      'x-dead-letter-routing-key': ALERT_QUEUE,
+    },
+  });
 
   channel.prefetch(10); // notification-svc can handle more concurrency than jobs-worker
 

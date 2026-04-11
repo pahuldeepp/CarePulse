@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { createLogger, format, transports } from 'winston';
 import { AppModule } from './app.module';
+import { provisionKafkaTopics } from './kafka/kafka-admin';
 
 const logger = createLogger({
   format: format.combine(format.timestamp(), format.json()),
@@ -9,6 +10,9 @@ const logger = createLogger({
 });
 
 async function bootstrap() {
+  // Ensure Kafka topics exist before accepting traffic
+  await provisionKafkaTopics();
+
   const app = await NestFactory.create(AppModule, { logger: false });
 
   app.setGlobalPrefix('v1');

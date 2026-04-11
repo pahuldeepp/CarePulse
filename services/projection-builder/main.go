@@ -23,9 +23,12 @@ func main() {
 
 	log.Info().Msg("projection-builder starting")
 
-	// S2: Kafka consumer loop goes here
-	// topics: domain.patient.created, domain.telemetry.ingested
-	// action: upsert patient_dashboard_projection in Postgres
+	// Start Kafka consumer in background goroutine
+	go func() {
+		if err := StartConsumer(ctx); err != nil {
+			log.Fatal().Err(err).Msg("consumer exited with error")
+		}
+	}()
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {

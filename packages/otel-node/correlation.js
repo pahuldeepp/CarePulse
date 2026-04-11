@@ -9,7 +9,7 @@
  */
 
 const { format } = require('winston');
-const { trace, context } = require('@opentelemetry/api');
+const { trace } = require('@opentelemetry/api');
 
 /**
  * Winston custom format that appends trace_id and span_id from the active OTel span.

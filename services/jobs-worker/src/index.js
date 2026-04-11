@@ -48,10 +48,11 @@ async function startConsumer() {
 }
 
 // ── Healthcheck server ────────────────────────────────────────────────────────
+const PORT = process.env.PORT ?? 4001;
 const app = express();
 app.get('/healthz', (_req, res) => res.sendStatus(200));
-app.listen(process.env.PORT ?? 4001, () => {
-  logger.info({ msg: 'jobs-worker healthcheck listening', port: 4001 });
+app.listen(PORT, () => {
+  logger.info({ msg: 'jobs-worker healthcheck listening', port: PORT });
 });
 
 startConsumer().catch((err) => {

@@ -9,6 +9,6 @@ export class PatientService {
 
   async create(data: any) {
     // S2: Prisma $transaction + outbox_events insert goes here
-    return { id: crypto.randomUUID(), ...data };
+    return { ...data, id: crypto.randomUUID() };
   }
 }

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -11,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -19,10 +19,10 @@ import (
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const (
-	workerCount  = 50             // goroutines pulling from the queue
-	queueSize    = 10_000         // buffered channel capacity (backpressure buffer)
-	batchSize    = 500            // rows per pgx COPY batch
-	flushEvery   = 100 * time.Millisecond // flush even if batch not full
+	workerCount = 50                    // goroutines pulling from the queue
+	queueSize   = 10_000               // buffered channel capacity (backpressure buffer)
+	batchSize   = 500                  // rows per pgx COPY batch
+	flushEvery  = 100 * time.Millisecond // flush even if batch not full
 )
 
 // ── Domain ────────────────────────────────────────────────────────────────────
@@ -38,26 +38,24 @@ type Reading struct {
 // ── Ingestor ──────────────────────────────────────────────────────────────────
 
 type Ingestor struct {
-	queue chan Reading   // goroutines talk through this channel
-	pool  *pgxpool.Pool // postgres connection pool
+	queue chan Reading
+	pool  *pgxpool.Pool
 	wg    sync.WaitGroup
 }
 
 func NewIngestor(pool *pgxpool.Pool) *Ingestor {
 	return &Ingestor{
-		queue: make(chan Reading, queueSize), // buffered — senders don't block until full
+		queue: make(chan Reading, queueSize),
 		pool:  pool,
 	}
 }
 
 // Submit puts a reading onto the queue (non-blocking — drops if full).
-// HTTP handlers call this; they never wait for the DB write.
 func (ing *Ingestor) Submit(r Reading) bool {
 	select {
 	case ing.queue <- r:
 		return true
 	default:
-		// queue full — shed load rather than block the HTTP layer
 		log.Warn().Str("device_id", r.DeviceID).Msg("queue full, reading dropped")
 		return false
 	}
@@ -74,15 +72,11 @@ func (ing *Ingestor) Start(ctx context.Context) {
 
 // Stop drains remaining readings and waits for all workers to finish.
 func (ing *Ingestor) Stop() {
-	close(ing.queue) // signals workers: no more readings coming
+	close(ing.queue)
 	ing.wg.Wait()
 	log.Info().Msg("ingestor stopped cleanly")
 }
 
-// runWorker is the core loop for one goroutine.
-// It collects readings into a local batch and flushes to Postgres when:
-//   - batch reaches batchSize, OR
-//   - flushEvery timer fires (so we never hold data too long)
 func (ing *Ingestor) runWorker(ctx context.Context, id int) {
 	defer ing.wg.Done()
 
@@ -94,11 +88,8 @@ func (ing *Ingestor) runWorker(ctx context.Context, id int) {
 
 	for {
 		select {
-
-		// ── new reading arrived on the channel ────────────────────────────────
 		case r, ok := <-ing.queue:
 			if !ok {
-				// channel closed — flush whatever is left then exit
 				if len(batch) > 0 {
 					ing.flush(ctx, batch, logger)
 				}
@@ -107,10 +98,8 @@ func (ing *Ingestor) runWorker(ctx context.Context, id int) {
 			batch = append(batch, r)
 			if len(batch) >= batchSize {
 				ing.flush(ctx, batch, logger)
-				batch = batch[:0] // reset slice, keep memory
+				batch = batch[:0]
 			}
-
-		// ── timer fired — flush partial batch ─────────────────────────────────
 		case <-ticker.C:
 			if len(batch) > 0 {
 				ing.flush(ctx, batch, logger)
@@ -120,9 +109,7 @@ func (ing *Ingestor) runWorker(ctx context.Context, id int) {
 	}
 }
 
-// flush writes a batch to Postgres using COPY — the fastest bulk insert method.
-// COPY bypasses row-by-row parsing, WAL overhead is minimal, throughput is ~10x
-// faster than individual INSERTs.
+// flush writes a batch to Postgres using COPY — fastest bulk insert method.
 func (ing *Ingestor) flush(ctx context.Context, batch []Reading, logger zerolog.Logger) {
 	start := time.Now()
 
@@ -133,10 +120,9 @@ func (ing *Ingestor) flush(ctx context.Context, batch []Reading, logger zerolog.
 
 	_, err := ing.pool.CopyFrom(
 		ctx,
-		// table to write into (created by migration in S2)
-		pgxPoolIdentifier{"public", "telemetry_readings"},
+		pgx.Identifier{"public", "telemetry_readings"},
 		[]string{"device_id", "tenant_id", "metric", "value", "timestamp"},
-		pgxpool.CopyFromRows(rows),
+		pgx.CopyFromRows(rows),
 	)
 	if err != nil {
 		logger.Error().Err(err).Int("batch_size", len(batch)).Msg("flush failed")
@@ -147,13 +133,6 @@ func (ing *Ingestor) flush(ctx context.Context, batch []Reading, logger zerolog.
 		Int("rows", len(batch)).
 		Dur("took", time.Since(start)).
 		Msg("batch flushed")
-}
-
-// pgxPoolIdentifier satisfies pgx's pgx.Identifier for table names.
-type pgxPoolIdentifier []string
-
-func (id pgxPoolIdentifier) Sanitize() string {
-	return fmt.Sprintf("%q.%q", id[0], id[1])
 }
 
 // ── HTTP handler ──────────────────────────────────────────────────────────────
@@ -168,27 +147,23 @@ func handleIngest(ing *Ingestor) http.HandlerFunc {
 		if reading.Timestamp.IsZero() {
 			reading.Timestamp = time.Now().UTC()
 		}
-
 		if !ing.Submit(reading) {
-			// queue full — tell client to back off
 			w.WriteHeader(http.StatusTooManyRequests)
 			return
 		}
-		w.WriteHeader(http.StatusAccepted) // 202 — queued, not yet written
+		w.WriteHeader(http.StatusAccepted)
 	}
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 func main() {
-	// structured JSON logging (zerolog)
 	zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	log.Logger = log.Output(os.Stdout)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// postgres connection pool (pgx)
 	dsn := getEnv("DATABASE_URL", "postgres://carepack:carepack@localhost:5433/carepack")
 	pool, err := pgxpool.New(ctx, dsn)
 	if err != nil {
@@ -196,11 +171,9 @@ func main() {
 	}
 	defer pool.Close()
 
-	// start the ingestor — launches all goroutines
 	ing := NewIngestor(pool)
 	ing.Start(ctx)
 
-	// HTTP server
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/readings", handleIngest(ing))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -208,11 +181,13 @@ func main() {
 	})
 
 	srv := &http.Server{
-		Addr:    ":8080",
-		Handler: mux,
+		Addr:         ":8080",
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
-	// start server in its own goroutine so main can wait for shutdown signal
 	go func() {
 		log.Info().Str("addr", srv.Addr).Msg("telemetry-ingest listening")
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
@@ -220,14 +195,17 @@ func main() {
 		}
 	}()
 
-	// block until SIGTERM or SIGINT (Ctrl+C / Kubernetes pod shutdown)
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
 	<-quit
 
 	log.Info().Msg("shutting down...")
-	srv.Shutdown(ctx) // stop accepting new requests
-	ing.Stop()        // drain queue, flush remaining batches
+	shutCtx, shutCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer shutCancel()
+	if err := srv.Shutdown(shutCtx); err != nil {
+		log.Error().Err(err).Msg("shutdown error")
+	}
+	ing.Stop()
 }
 
 func getEnv(key, fallback string) string {

@@ -110,9 +110,10 @@ async def start_kafka_consumer():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    asyncio.create_task(start_kafka_consumer())
+    consumer_task = asyncio.create_task(start_kafka_consumer())
     log.info("risk_engine_started")
     yield
+    consumer_task.cancel()
     log.info("risk_engine_stopped")
 
 app = FastAPI(title="risk-engine", version="0.1.0", lifespan=lifespan)
@@ -139,4 +140,9 @@ async def score(reading: TelemetryReading):
     )
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8001)), reload=False)
+    uvicorn.run(
+        "main:app",
+        host=os.getenv("HOST", "127.0.0.1"),
+        port=int(os.getenv("PORT", 8001)),
+        reload=False,
+    )

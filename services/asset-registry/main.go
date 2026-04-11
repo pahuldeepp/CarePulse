@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
@@ -31,7 +32,13 @@ func main() {
 	// S4: device provisioning endpoint + pg_advisory_lock goes here
 	// S4: gRPC server for asset-registry <-> patient-service calls
 
-	srv := &http.Server{Addr: ":8081", Handler: mux}
+	srv := &http.Server{
+		Addr:         ":8081",
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
 
 	go func() {
 		log.Info().Str("addr", srv.Addr).Msg("asset-registry listening")
@@ -44,6 +51,10 @@ func main() {
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
 	<-quit
 
-	srv.Shutdown(ctx)
+	shutCtx, shutCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer shutCancel()
+	if err := srv.Shutdown(shutCtx); err != nil {
+		log.Error().Err(err).Msg("shutdown error")
+	}
 	log.Info().Msg("asset-registry stopped")
 }

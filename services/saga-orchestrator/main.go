@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -32,10 +33,23 @@ func main() {
 	// S4: Redis saga state store goes here
 	// S4: device provisioning saga with TTL auto-cleanup
 
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	srv := &http.Server{Addr: ":8083", Handler: mux}
+	go func() {
+		log.Info().Str("addr", srv.Addr).Msg("saga-orchestrator listening")
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			log.Fatal().Err(err).Msg("server error")
+		}
+	}()
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
 	<-quit
 
+	srv.Shutdown(ctx)
 	log.Info().Msg("saga-orchestrator stopped")
-	_ = ctx
 }

@@ -73,7 +73,12 @@ async def search_patients(
     FHIR _search — standard search params.
     S12: full search implementation with tenant scoping.
     """
-    log.info("fhir_patient_search", name=name, identifier=identifier)
+    log.info(
+        "fhir_patient_search",
+        has_name=bool(name),
+        has_identifier=bool(identifier),
+        requested_count=_count,
+    )
     # S12: OpenSearch query goes here
     return {"resourceType": "Bundle", "type": "searchset", "total": 0, "entry": []}
 
@@ -111,4 +116,9 @@ async def cds_risk_alert(body: dict):
     return {"cards": []}
 
 if __name__ == "__main__":
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 8002)), reload=False)
+    uvicorn.run(
+        "main:app",
+        host=os.getenv("HOST", "127.0.0.1"),
+        port=int(os.getenv("PORT", 8002)),
+        reload=False,
+    )

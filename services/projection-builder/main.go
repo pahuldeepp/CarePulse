@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -26,10 +27,23 @@ func main() {
 	// topics: domain.patient.created, domain.telemetry.ingested
 	// action: upsert patient_dashboard_projection in Postgres
 
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+
+	srv := &http.Server{Addr: ":8082", Handler: mux}
+	go func() {
+		log.Info().Str("addr", srv.Addr).Msg("projection-builder listening")
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			log.Fatal().Err(err).Msg("server error")
+		}
+	}()
+
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
 	<-quit
 
+	srv.Shutdown(ctx)
 	log.Info().Msg("projection-builder stopped")
-	_ = ctx
 }

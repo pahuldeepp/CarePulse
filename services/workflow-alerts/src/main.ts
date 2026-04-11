@@ -9,8 +9,9 @@ async function bootstrap() {
   // S3: alert dedup (unique tenantId+dedupeKey) goes here
   // S3: OCC version column for optimistic locking goes here
 
-  await app.listen(process.env.PORT ?? 3001);
-  console.log(JSON.stringify({ msg: 'workflow-alerts listening', port: 3001 }));
+  const port = process.env.PORT ?? 3001;
+  await app.listen(port);
+  console.log(JSON.stringify({ msg: 'workflow-alerts listening', port }));
 }
 
 bootstrap();

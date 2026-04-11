@@ -54,10 +54,11 @@ async function startConsumer() {
 }
 
 // ── Healthcheck ───────────────────────────────────────────────────────────────
+const PORT = process.env.PORT ?? 4002;
 const app = express();
 app.get('/healthz', (_req, res) => res.sendStatus(200));
-app.listen(process.env.PORT ?? 4002, () => {
-  logger.info({ msg: 'notification-svc listening', port: 4002 });
+app.listen(PORT, () => {
+  logger.info({ msg: 'notification-svc listening', port: PORT });
 });
 
 startConsumer().catch((err) => {

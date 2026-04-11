@@ -1,10 +1,13 @@
 "use strict";
 
 const js = require("@eslint/js");
-const tseslint = require("typescript-eslint");
+
+// Root ESLint config — covers JavaScript tooling and Node services only.
+// NestJS TypeScript services use `tsc --noEmit` for type checking (see each
+// service's package.json lint script). TypeScript ESLint is wired in S3.
 
 module.exports = [
-  { ignores: ["node_modules/**"] },
+  { ignores: ["node_modules/**", "dist/**", "**/*.ts"] },
   {
     files: ["**/*.js"],
     ...js.configs.recommended,
@@ -21,20 +24,5 @@ module.exports = [
         require: "readonly",
       },
     },
-  },
-  {
-    files: ["**/*.ts"],
-    languageOptions: {
-      parser: tseslint.parser,
-      parserOptions: {
-        ecmaVersion: 2022,
-        sourceType: "module",
-      },
-      globals: {
-        console: "readonly",
-        process: "readonly",
-      },
-    },
-    rules: {},
   },
 ];

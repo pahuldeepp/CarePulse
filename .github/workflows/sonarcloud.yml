@@ -1,0 +1,89 @@
+name: SonarCloud Analysis
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  sonarcloud:
+    name: SonarCloud
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history required for blame + new-code detection
+
+      # ── Go coverage ──────────────────────────────────────────────────────────
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Go — sync workspace + generate coverage
+        run: |
+          go work sync
+          mkdir -p coverage/go
+          # Run tests with coverage for each module that has tests
+          for mod in services/telemetry-ingest services/projection-builder \
+                     services/asset-registry services/saga-orchestrator \
+                     packages/otel-go; do
+            cd $mod
+            go test ./... -coverprofile=../../coverage/go/$(basename $mod).out \
+              -covermode=atomic 2>/dev/null || true
+            cd $GITHUB_WORKSPACE
+          done
+          # Merge coverage profiles
+          cat coverage/go/*.out > coverage/go/coverage.out 2>/dev/null || \
+            echo "mode: atomic" > coverage/go/coverage.out
+
+      # ── Python coverage ──────────────────────────────────────────────────────
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Python — install deps + generate coverage
+        run: |
+          pip install pytest pytest-cov ruff 2>/dev/null
+          mkdir -p coverage/python
+          for svc in services/risk-engine services/fhir-gateway services/search-indexer; do
+            cd $svc
+            pip install -e ".[dev]" 2>/dev/null || true
+            pytest --cov=. --cov-report=xml:../../coverage/python/coverage.xml \
+              -q 2>/dev/null || true
+            cd $GITHUB_WORKSPACE
+          done
+          # Create empty coverage if no tests yet
+          [ -f coverage/python/coverage.xml ] || \
+            echo '<?xml version="1.0" ?><coverage version="7.0"></coverage>' \
+            > coverage/python/coverage.xml
+
+      # ── Node coverage ────────────────────────────────────────────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Node — install deps + generate coverage
+        run: |
+          npm install --prefer-offline
+          mkdir -p coverage/node
+          for svc in services/gateway-graphql services/jobs-worker \
+                     services/notification-service services/patient-service \
+                     services/workflow-alerts services/billing-service; do
+            cd $svc
+            npm install --prefer-offline 2>/dev/null || true
+            npm test -- --coverage --coverageReporters=lcov \
+              --coverageDirectory=../../coverage/node 2>/dev/null || true
+            cd $GITHUB_WORKSPACE
+          done
+          # Create empty lcov if no tests yet
+          [ -f coverage/node/lcov.info ] || touch coverage/node/lcov.info
+
+      # ── SonarCloud scan ──────────────────────────────────────────────────────
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

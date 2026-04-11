@@ -26,9 +26,11 @@ function buildContext({ req, pool }) {
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
-      await client.query(
-        `SET LOCAL app.current_tenant_id = '${user.tenantId}'`,
-      );
+      // Use set_config() with parameterised call — prevents SQL injection
+      await client.query('SELECT set_config($1, $2, true)', [
+        'app.current_tenant_id',
+        user.tenantId,
+      ]);
       const result = await client.query(sql, params);
       await client.query('COMMIT');
       return result.rows;

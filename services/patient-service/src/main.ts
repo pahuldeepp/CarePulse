@@ -10,11 +10,18 @@ const logger = createLogger({
 });
 
 async function bootstrap() {
-  // Ensure Kafka topics exist before accepting traffic
-  await provisionKafkaTopics();
+  // Provision Kafka topics with a 30s timeout to prevent indefinite startup hangs
+  await Promise.race([
+    provisionKafkaTopics(),
+    new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error('Kafka topic provisioning timed out after 30s')), 30_000),
+    ),
+  ]);
 
   const app = await NestFactory.create(AppModule, { logger: false });
 
+  // Enable Nest shutdown hooks so PrismaService.onModuleDestroy fires on SIGTERM
+  app.enableShutdownHooks();
   app.setGlobalPrefix('v1');
 
   // S2: Prisma middleware for PHI audit log goes here

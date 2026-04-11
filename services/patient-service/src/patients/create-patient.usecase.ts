@@ -21,10 +21,8 @@ export class CreatePatientUseCase {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
-        // 1️⃣  Set RLS tenant so Postgres policies fire
-        await tx.$executeRawUnsafe(
-          `SET LOCAL app.current_tenant_id = '${dto.tenantId}'`,
-        );
+        // 1️⃣  Set RLS tenant — parameterised via set_config() to prevent SQL injection
+        await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${dto.tenantId}, true)`;
 
         // 2️⃣  Insert patient
         const patient = await tx.patient.create({

@@ -64,9 +64,31 @@ func StartConsumer(ctx context.Context) error {
 			continue
 		}
 
-		if err := handleMessage(ctx, pool, msg); err != nil {
-			log.Error().Err(err).Str("topic", msg.Topic).Int64("offset", msg.Offset).
-				Msg("message handling failed — will retry")
+		// Retry up to maxRetries before skipping poison messages so a bad
+		// message doesn't block partition progress indefinitely.
+		const maxRetries = 5
+		var handleErr error
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			if handleErr = handleMessage(ctx, pool, msg); handleErr == nil {
+				break
+			}
+			log.Error().Err(handleErr).
+				Str("topic", msg.Topic).
+				Int64("offset", msg.Offset).
+				Int("attempt", attempt).
+				Msg("message handling failed")
+			if attempt == maxRetries {
+				log.Error().
+					Str("topic", msg.Topic).
+					Int64("offset", msg.Offset).
+					Msg("max retries exceeded — skipping poison message")
+			}
+		}
+		if handleErr != nil {
+			// Commit the offset anyway so we don't reprocess indefinitely
+			if err := r.CommitMessages(ctx, msg); err != nil {
+				log.Error().Err(err).Msg("commit (skip) failed")
+			}
 			continue
 		}
 

@@ -16,7 +16,13 @@ function verifyJwt(token, secret) {
     .update(`${headerB64}.${payloadB64}`)
     .digest('base64url');
 
-  if (expected !== sigB64) throw new Error('Invalid JWT signature');
+  // Timing-safe comparison prevents signature oracle / timing attacks
+  const expectedBuf = Buffer.from(expected);
+  const sigBuf      = Buffer.from(sigB64);
+  const signaturesMatch =
+    expectedBuf.length === sigBuf.length &&
+    crypto.timingSafeEqual(expectedBuf, sigBuf);
+  if (!signaturesMatch) throw new Error('Invalid JWT signature');
 
   const payload = JSON.parse(Buffer.from(payloadB64, 'base64url').toString());
   if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) {

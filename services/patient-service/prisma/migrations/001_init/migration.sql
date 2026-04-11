@@ -119,6 +119,11 @@ ALTER TABLE "alerts"
     FOREIGN KEY ("patient_id") REFERENCES "patients"("id")
     ON DELETE RESTRICT ON UPDATE CASCADE;
 
+ALTER TABLE "care_plans"
+    ADD CONSTRAINT "care_plans_patient_id_fkey"
+    FOREIGN KEY ("patient_id") REFERENCES "patients"("id")
+    ON DELETE RESTRICT ON UPDATE CASCADE;
+
 ALTER TABLE "outbox_events"
     ADD CONSTRAINT "outbox_events_aggregate_id_fkey"
     FOREIGN KEY ("aggregate_id") REFERENCES "patients"("id")
@@ -153,6 +158,11 @@ CREATE POLICY "tenant_isolation" ON "care_plans"
 
 -- outbox_events policy
 CREATE POLICY "tenant_isolation" ON "outbox_events"
+    USING (tenant_id = current_setting('app.current_tenant_id', true));
+
+-- patient_dashboard_projection policy (read model must be tenant-isolated too)
+ALTER TABLE "patient_dashboard_projection" ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "tenant_isolation" ON "patient_dashboard_projection"
     USING (tenant_id = current_setting('app.current_tenant_id', true));
 
 -- App role (used by Prisma connection — not a superuser)

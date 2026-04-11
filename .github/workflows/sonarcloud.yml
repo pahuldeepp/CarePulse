@@ -35,9 +35,9 @@ jobs:
               -covermode=atomic 2>/dev/null || true
             cd $GITHUB_WORKSPACE
           done
-          # Merge coverage profiles
-          cat coverage/go/*.out > coverage/go/coverage.out 2>/dev/null || \
-            echo "mode: atomic" > coverage/go/coverage.out
+          # Merge coverage profiles — write one mode: line then append data lines
+          echo "mode: atomic" > coverage/go/coverage.out
+          tail -q -n +2 coverage/go/*.out >> coverage/go/coverage.out 2>/dev/null || true
 
       # ── Python coverage ──────────────────────────────────────────────────────
       - uses: actions/setup-python@v5
@@ -51,14 +51,17 @@ jobs:
           for svc in services/risk-engine services/fhir-gateway services/search-indexer; do
             cd $svc
             pip install -e ".[dev]" 2>/dev/null || true
-            pytest --cov=. --cov-report=xml:../../coverage/python/coverage.xml \
+            # Write per-service coverage file to avoid overwriting previous results
+            pytest --cov=. --cov-report=xml:../../coverage/python/$(basename $svc).xml \
               -q 2>/dev/null || true
             cd $GITHUB_WORKSPACE
           done
-          # Create empty coverage if no tests yet
-          [ -f coverage/python/coverage.xml ] || \
-            echo '<?xml version="1.0" ?><coverage version="7.0"></coverage>' \
-            > coverage/python/coverage.xml
+          # Create empty coverage files for any service that produced no output
+          for svc in risk-engine fhir-gateway search-indexer; do
+            [ -f coverage/python/${svc}.xml ] || \
+              echo '<?xml version="1.0" ?><coverage version="7.0"></coverage>' \
+              > coverage/python/${svc}.xml
+          done
 
       # ── Node coverage ────────────────────────────────────────────────────────
       - uses: actions/setup-node@v4
@@ -83,7 +86,8 @@ jobs:
 
       # ── SonarCloud scan ──────────────────────────────────────────────────────
       - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
+        uses: SonarSource/sonarqube-scan-action@v5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io

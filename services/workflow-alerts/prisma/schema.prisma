@@ -1,0 +1,23 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Alert {
+  alert_id        String    @id @default(uuid())
+  tenant_id       String
+  device_id       String
+  severity        String    // low | medium | high | critical
+  news2           Int
+  qsofa           Int
+  triggered_at    DateTime  @default(now())
+  acknowledged_at DateTime?
+  acknowledged_by String?
+
+  @@index([tenant_id, triggered_at(sort: Desc)])
+  @@map("alerts")
+}

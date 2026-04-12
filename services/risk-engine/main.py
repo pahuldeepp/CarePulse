@@ -1,7 +1,9 @@
 import asyncio
+import json
 import os
 import sys
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 
 # OTel bootstrap must run before any other imports that touch HTTP/structlog
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "packages", "otel-python"))
@@ -9,8 +11,10 @@ from otel_bootstrap import configure_otel, instrument_fastapi  # noqa: E402
 
 configure_otel()
 
+import redis.asyncio as aioredis
 import structlog
 import uvicorn
+from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from fastapi import FastAPI
 from pydantic import BaseModel, Field, field_validator
 
@@ -22,6 +26,13 @@ structlog.configure(
     ]
 )
 log = structlog.get_logger()
+
+KAFKA_BOOTSTRAP = os.environ.get("KAFKA_BOOTSTRAP", "localhost:9092")
+CONSUMER_TOPIC = "domain.telemetry.ingested"
+PRODUCER_TOPIC = "domain.risk.scored"
+CONSUMER_GROUP = "risk-engine"
+REDIS_URL = os.environ.get("REDIS_URL", "redis://localhost:6379")
+DEDUP_TTL = 300  # 5 min — prevents 720 alerts/hour becoming alert storm
 
 # ── Domain models ─────────────────────────────────────────────────────────────
 
@@ -167,13 +178,71 @@ def risk_level(news2: int, qsofa: int) -> str:
     return "low"
 
 
-# ── Kafka consumer (S4: wired to domain.telemetry.ingested) ──────────────────
+# ── Redis dedup ───────────────────────────────────────────────────────────────
+# SET NX 5-min TTL per device+level.
+# A device sending 1 reading/5s = 720/hour — without dedup every reading
+# above threshold creates an alert. With dedup: at most 1 alert per 5 min.
 
 
-async def start_kafka_consumer():
-    # S4: aiokafka consumer on domain.telemetry.ingested goes here
-    # publishes domain.risk.scored after scoring each reading
-    log.info("kafka_consumer_stub", topic="domain.telemetry.ingested")
+async def is_new_alert(redis: aioredis.Redis, device_id: str, level: str) -> bool:
+    """True only the first time this device+level fires within DEDUP_TTL."""
+    if level not in ("high", "critical"):
+        return False
+    key = f"risk:dedup:{device_id}:{level}"
+    return bool(await redis.set(key, "1", nx=True, ex=DEDUP_TTL))
+
+
+# ── Kafka consumer ────────────────────────────────────────────────────────────
+
+
+async def start_kafka_consumer(redis: aioredis.Redis) -> None:
+    consumer = AIOKafkaConsumer(
+        CONSUMER_TOPIC,
+        bootstrap_servers=KAFKA_BOOTSTRAP,
+        group_id=CONSUMER_GROUP,
+        value_deserializer=lambda v: json.loads(v.decode()),
+        auto_offset_reset="earliest",
+    )
+    producer = AIOKafkaProducer(
+        bootstrap_servers=KAFKA_BOOTSTRAP,
+        value_serializer=lambda v: json.dumps(v).encode(),
+    )
+
+    await consumer.start()
+    await producer.start()
+    log.info("kafka_consumer_started", topic=CONSUMER_TOPIC)
+
+    try:
+        async for msg in consumer:
+            try:
+                reading = TelemetryReading(**msg.value)
+            except Exception as exc:
+                log.error("invalid_reading", error=str(exc), raw=msg.value)
+                continue
+
+            news2 = score_news2(reading)
+            qsofa = score_qsofa(reading)
+            level = risk_level(news2, qsofa)
+
+            event = {
+                "device_id": reading.device_id,
+                "tenant_id": reading.tenant_id,
+                "news2": news2,
+                "qsofa": qsofa,
+                "risk_level": level,
+                "scored_at": datetime.now(timezone.utc).isoformat(),
+                "emit_alert": await is_new_alert(redis, reading.device_id, level),
+            }
+
+            await producer.send_and_wait(PRODUCER_TOPIC, event)
+            log.info("risk_scored", **event)
+
+    except asyncio.CancelledError:
+        pass
+    finally:
+        await consumer.stop()
+        await producer.stop()
+        log.info("kafka_consumer_stopped")
 
 
 # ── FastAPI app ───────────────────────────────────────────────────────────────
@@ -181,10 +250,12 @@ async def start_kafka_consumer():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    consumer_task = asyncio.create_task(start_kafka_consumer())
+    redis = aioredis.from_url(REDIS_URL, decode_responses=True)
+    consumer_task = asyncio.create_task(start_kafka_consumer(redis))
     log.info("risk_engine_started")
     yield
     consumer_task.cancel()
+    await redis.aclose()
     log.info("risk_engine_stopped")
 
 

@@ -1,0 +1,54 @@
+# Pre-commit hooks for CarePulse — runs before every git commit locally.
+# Install once: pip install pre-commit && pre-commit install
+#
+# Covers:
+#   Python  → ruff lint + format
+#   Go      → golangci-lint + gofmt
+#   Node/JS → eslint (via local npm script)
+#   General → trailing whitespace, YAML/JSON validity, no secrets
+
+repos:
+  # ── General ────────────────────────────────────────────────────────────────
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-merge-conflict
+      - id: detect-private-key          # blocks accidental secret commits
+      - id: check-added-large-files
+        args: ["--maxkb=500"]
+
+  # ── Python: ruff lint + format ─────────────────────────────────────────────
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^services/(risk-engine|fhir-gateway|search-indexer)/
+      - id: ruff-format
+        files: ^services/(risk-engine|fhir-gateway|search-indexer)/
+
+  # ── Go: gofmt + golangci-lint ──────────────────────────────────────────────
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-fmt
+        files: \.go$
+      - id: golangci-lint
+        files: \.go$
+        args: [--timeout=5m]
+
+  # ── Node/JS: eslint ────────────────────────────────────────────────────────
+  - repo: local
+    hooks:
+      - id: eslint-js-services
+        name: ESLint (Node services)
+        language: node
+        entry: npx eslint --fix
+        files: ^services/(gateway-graphql|jobs-worker|notification-service)/src/.*\.js$
+        additional_dependencies:
+          - eslint@^9.39.0
+          - "@eslint/js@^9.39.0"

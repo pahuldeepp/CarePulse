@@ -7,7 +7,7 @@ const js = require("@eslint/js");
 // service's package.json lint script). TypeScript ESLint is wired in S3.
 
 module.exports = [
-  { ignores: ["node_modules/**", "dist/**", "**/*.ts"] },
+  { ignores: ["node_modules/**", "**/dist/**", "**/*.ts"] },
   {
     files: ["**/*.js"],
     ...js.configs.recommended,
@@ -22,6 +22,23 @@ module.exports = [
         module: "readonly",
         process: "readonly",
         require: "readonly",
+      },
+    },
+  },
+  // Jest globals for test files
+  {
+    files: ["**/*.test.js", "**/*.spec.js"],
+    languageOptions: {
+      globals: {
+        describe:  "readonly",
+        it:        "readonly",
+        expect:    "readonly",
+        beforeEach:"readonly",
+        afterEach: "readonly",
+        beforeAll: "readonly",
+        afterAll:  "readonly",
+        jest:      "readonly",
+        test:      "readonly",
       },
     },
   },

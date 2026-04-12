@@ -6,6 +6,9 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "lint": "eslint .",
+    "lint:py": "ruff check services/risk-engine services/fhir-gateway services/search-indexer",
+    "lint:go": "cd services/telemetry-ingest && golangci-lint run ./...",
+    "prepare": "husky",
     "claude": "claude",
     "codex": "codex"
   },
@@ -19,6 +22,20 @@
     "@openai/codex": "^0.118.0",
     "coderabbitai-mcp": "^1.1.1",
     "eslint": "^9.39.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^15.5.2",
     "typescript-eslint": "^8.58.1"
+  },
+  "lint-staged": {
+    "services/{gateway-graphql,jobs-worker,notification-service}/src/**/*.js": [
+      "eslint --fix"
+    ],
+    "services/{risk-engine,fhir-gateway,search-indexer}/**/*.py": [
+      "/Users/pahuldeep/Library/Python/3.9/bin/ruff check --fix",
+      "/Users/pahuldeep/Library/Python/3.9/bin/ruff format"
+    ],
+    "**/*.go": [
+      "gofmt -w"
+    ]
   }
 }

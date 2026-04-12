@@ -1,0 +1,4 @@
+# Husky pre-commit hook — runs lint-staged on changed files only.
+# Fast: only lints files you actually changed, not the whole codebase.
+export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
+npx lint-staged

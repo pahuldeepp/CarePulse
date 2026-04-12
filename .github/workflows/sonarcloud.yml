@@ -1,0 +1,96 @@
+name: SonarCloud Analysis
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  sonarcloud:
+    name: SonarCloud
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # full history required for blame + new-code detection
+
+      # ── Go coverage ──────────────────────────────────────────────────────────
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache: true
+
+      - name: Go — sync workspace + generate coverage
+        run: |
+          go work sync
+          mkdir -p coverage/go
+          # Run tests with coverage for each module that has tests
+          for mod in services/telemetry-ingest services/projection-builder \
+                     services/asset-registry services/saga-orchestrator \
+                     packages/otel-go; do
+            cd $mod
+            go test ./... -coverprofile=../../coverage/go/$(basename $mod).out \
+              -covermode=atomic 2>/dev/null || true
+            cd $GITHUB_WORKSPACE
+          done
+          # Merge coverage profiles — write one mode: line then append data lines
+          echo "mode: atomic" > coverage/go/coverage.out
+          tail -q -n +2 coverage/go/*.out >> coverage/go/coverage.out 2>/dev/null || true
+
+      # ── Python coverage ──────────────────────────────────────────────────────
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Python — install deps + generate coverage
+        run: |
+          pip install pytest pytest-cov ruff 2>/dev/null
+          mkdir -p coverage/python
+          for svc in services/risk-engine services/fhir-gateway services/search-indexer; do
+            cd $svc
+            pip install -e ".[dev]" 2>/dev/null || true
+            # Write per-service coverage file to avoid overwriting previous results
+            pytest --cov=. --cov-report=xml:../../coverage/python/$(basename $svc).xml \
+              -q 2>/dev/null || true
+            cd $GITHUB_WORKSPACE
+          done
+          # Create empty coverage files for any service that produced no output
+          for svc in risk-engine fhir-gateway search-indexer; do
+            [ -f coverage/python/${svc}.xml ] || \
+              echo '<?xml version="1.0" ?><coverage version="7.0"></coverage>' \
+              > coverage/python/${svc}.xml
+          done
+
+      # ── Node coverage ────────────────────────────────────────────────────────
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Node — install deps + generate coverage
+        run: |
+          npm install --prefer-offline
+          mkdir -p coverage/node
+          for svc in services/gateway-graphql services/jobs-worker \
+                     services/notification-service services/patient-service \
+                     services/workflow-alerts services/billing-service; do
+            svc_name=$(basename $svc)
+            cd $svc
+            npm install --prefer-offline 2>/dev/null || true
+            # Write to per-service subdirectory to avoid overwriting other services
+            npm test -- --coverage --coverageReporters=lcov \
+              --coverageDirectory=../../coverage/node/${svc_name} 2>/dev/null || true
+            cd $GITHUB_WORKSPACE
+          done
+          # Merge all per-service lcov.info files into one for SonarCloud
+          find coverage/node -name "lcov.info" | xargs cat > coverage/node/lcov.info 2>/dev/null \
+            || touch coverage/node/lcov.info
+
+      # ── SonarCloud scan ──────────────────────────────────────────────────────
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarqube-scan-action@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: https://sonarcloud.io

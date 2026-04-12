@@ -20,9 +20,9 @@ import (
 // ── Config ────────────────────────────────────────────────────────────────────
 
 const (
-	workerCount = 50                    // goroutines pulling from the queue
-	queueSize   = 10_000               // buffered channel capacity (backpressure buffer)
-	batchSize   = 500                  // rows per pgx COPY batch
+	workerCount = 50                     // goroutines pulling from the queue
+	queueSize   = 10_000                 // buffered channel capacity (backpressure buffer)
+	batchSize   = 500                    // rows per pgx COPY batch
 	flushEvery  = 100 * time.Millisecond // flush even if batch not full
 )
 
@@ -39,15 +39,17 @@ type Reading struct {
 // ── Ingestor ──────────────────────────────────────────────────────────────────
 
 type Ingestor struct {
-	queue chan Reading
-	pool  *pgxpool.Pool
-	wg    sync.WaitGroup
+	queue  chan Reading
+	pool   *pgxpool.Pool
+	dynamo *DynamoStore // nil in local dev (no DYNAMODB_TABLE env var)
+	wg     sync.WaitGroup
 }
 
-func NewIngestor(pool *pgxpool.Pool) *Ingestor {
+func NewIngestor(pool *pgxpool.Pool, dynamo *DynamoStore) *Ingestor {
 	return &Ingestor{
-		queue: make(chan Reading, queueSize),
-		pool:  pool,
+		queue:  make(chan Reading, queueSize),
+		pool:   pool,
+		dynamo: dynamo,
 	}
 }
 
@@ -94,6 +96,8 @@ func (ing *Ingestor) runWorker(ctx context.Context, id int) {
 				if len(batch) > 0 {
 					if err := ing.flush(ctx, batch, logger); err != nil {
 						logger.Error().Err(err).Msg("final flush failed, readings may be lost")
+					} else {
+						ing.writeDynamo(ctx, batch)
 					}
 				}
 				return
@@ -101,17 +105,30 @@ func (ing *Ingestor) runWorker(ctx context.Context, id int) {
 			batch = append(batch, r)
 			if len(batch) >= batchSize {
 				if err := ing.flush(ctx, batch, logger); err == nil {
+					ing.writeDynamo(ctx, batch)
 					batch = batch[:0]
 				}
 			}
 		case <-ticker.C:
 			if len(batch) > 0 {
 				if err := ing.flush(ctx, batch, logger); err == nil {
+					ing.writeDynamo(ctx, batch)
 					batch = batch[:0]
 				}
 			}
 		}
 	}
+}
+
+// writeDynamo mirrors a successfully-flushed batch to DynamoDB.
+// No-op when dynamo is nil (local dev without DYNAMODB_TABLE set).
+// Errors are swallowed inside DynamoStore.Put — DynamoDB unavailability
+// must never block or fail the primary Postgres path.
+func (ing *Ingestor) writeDynamo(ctx context.Context, readings []Reading) {
+	if ing.dynamo == nil {
+		return
+	}
+	ing.dynamo.PutBatch(ctx, readings)
 }
 
 // flush writes a batch to Postgres using COPY — fastest bulk insert method.
@@ -184,7 +201,15 @@ func main() {
 	}
 	defer pool.Close()
 
-	ing := NewIngestor(pool)
+	var dynamo *DynamoStore
+	if os.Getenv("DYNAMODB_TABLE") != "" {
+		dynamo, err = NewDynamoStore(ctx)
+		if err != nil {
+			log.Warn().Err(err).Msg("dynamodb init failed, readings will not be mirrored to dynamo")
+		}
+	}
+
+	ing := NewIngestor(pool, dynamo)
 	ing.Start(ctx)
 
 	mux := http.NewServeMux()

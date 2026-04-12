@@ -31,8 +31,8 @@
       "eslint --fix"
     ],
     "services/{risk-engine,fhir-gateway,search-indexer}/**/*.py": [
-      "ruff check --fix",
-      "ruff format"
+      "/Users/pahuldeep/Library/Python/3.9/bin/ruff check --fix",
+      "/Users/pahuldeep/Library/Python/3.9/bin/ruff format"
     ],
     "**/*.go": [
       "gofmt -w"

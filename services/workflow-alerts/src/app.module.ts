@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
+import { AlertsModule } from './alerts/alerts.module';
 
 @Module({
-  imports: [],
-  // S3: AlertModule goes here
+  imports: [AlertsModule],
 })
 export class AppModule {}

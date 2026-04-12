@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
+import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { createLogger, format, transports } from 'winston';
 import { AppModule } from './app.module';
 
@@ -12,8 +13,21 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { logger: false });
   app.setGlobalPrefix('v1');
 
-  // S3: alert dedup (unique tenantId+dedupeKey) goes here
-  // S3: OCC version column for optimistic locking goes here
+  // Kafka microservice — consumes domain.risk.scored published by risk-engine.
+  // Hybrid app: HTTP (REST) + Kafka consumer running in the same process.
+  app.connectMicroservice<MicroserviceOptions>({
+    transport: Transport.KAFKA,
+    options: {
+      client: {
+        brokers: [(process.env.KAFKA_BOOTSTRAP ?? 'localhost:9092')],
+      },
+      consumer: {
+        groupId: 'workflow-alerts',
+      },
+    },
+  });
+
+  await app.startAllMicroservices();
 
   const port = process.env.PORT ?? 3001;
   await app.listen(port);

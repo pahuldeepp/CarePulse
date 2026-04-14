@@ -174,7 +174,9 @@ func handleProvision(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(provisionResponse{DeviceID: req.DeviceID, APIKey: apiKey})
+	if err := json.NewEncoder(w).Encode(provisionResponse{DeviceID: req.DeviceID, APIKey: apiKey}); err != nil {
+		log.Error().Err(err).Msg("encode_provision_response_failed")
+	}
 }
 
 func handleGetDevice(w http.ResponseWriter, r *http.Request) {
@@ -203,5 +205,7 @@ func handleGetDevice(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(result)
+	if err := json.NewEncoder(w).Encode(result); err != nil {
+		log.Error().Err(err).Msg("encode_device_response_failed")
+	}
 }

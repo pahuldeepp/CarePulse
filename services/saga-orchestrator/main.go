@@ -117,11 +117,13 @@ func handleProvision(w http.ResponseWriter, r *http.Request) {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]any{
+		if err := json.NewEncoder(w).Encode(map[string]any{
 			"saga_id":        sagaID,
 			"status":         "failed",
 			"failed_at_step": failedStep,
-		})
+		}); err != nil {
+			log.Error().Err(err).Msg("encode_saga_error_failed")
+		}
 		return
 	}
 
@@ -132,10 +134,12 @@ func handleProvision(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	json.NewEncoder(w).Encode(map[string]any{
+	if err := json.NewEncoder(w).Encode(map[string]any{
 		"saga_id": sagaID,
 		"status":  "completed",
-	})
+	}); err != nil {
+		log.Error().Err(err).Msg("encode_saga_complete_failed")
+	}
 }
 
 // runSaga executes the 3-step device provisioning saga.

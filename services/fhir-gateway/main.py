@@ -10,12 +10,16 @@ from otel_bootstrap import configure_otel, instrument_fastapi  # noqa: E402
 configure_otel()
 
 import boto3
+import httpx
 import structlog
 import uvicorn
 from botocore.exceptions import ClientError
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+PATIENT_SERVICE_URL = os.environ.get("PATIENT_SERVICE_URL", "http://localhost:3001")
+TELEMETRY_SERVICE_URL = os.environ.get("TELEMETRY_SERVICE_URL", "http://localhost:8080")
 
 # ── S3: FHIR bundle store ─────────────────────────────────────────────────────
 # Bundles land at {tenant_id}/{bundle_id}.json — tenant-scoped key prevents
@@ -60,10 +64,16 @@ class FHIRObservation(BaseModel):
 # ── FastAPI app ───────────────────────────────────────────────────────────────
 
 
+http_client: httpx.AsyncClient | None = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global http_client
+    http_client = httpx.AsyncClient(timeout=5.0)
     log.info("fhir_gateway_started")
     yield
+    await http_client.aclose()
     log.info("fhir_gateway_stopped")
 
 
@@ -80,34 +90,84 @@ async def health():
 
 
 @app.get("/fhir/R4/Patient/{patient_id}", response_model=FHIRPatient)
-async def get_patient(patient_id: str):
+async def get_patient(
+    patient_id: str,
+    x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
+):
     """
-    FHIR R4 Patient read.
-    S4: queries patient-service via gRPC and maps to FHIR resource.
+    FHIR R4 Patient read — proxies to patient-service and maps to FHIR R4.
+    S4: HTTP proxy. gRPC wiring follows once protos are generated in S5.
     """
-    log.info("fhir_patient_read", patient_id=patient_id)
-    # S4: gRPC call to patient-service goes here
-    raise HTTPException(status_code=501, detail="wired in S4")
+    log.info("fhir_patient_read", patient_id=patient_id, tenant_id=x_tenant_id)
+    try:
+        resp = await http_client.get(
+            f"{PATIENT_SERVICE_URL}/v1/patients/{patient_id}",
+            headers={"X-Tenant-ID": x_tenant_id},
+        )
+    except httpx.ConnectError as exc:
+        log.error("patient_service_unreachable", error=str(exc))
+        raise HTTPException(status_code=502, detail="patient-service unavailable")
+
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="patient not found")
+    if resp.status_code != 200:
+        log.error("patient_service_error", status=resp.status_code)
+        raise HTTPException(status_code=502, detail="upstream error")
+
+    p = resp.json()
+    return FHIRPatient(
+        id=patient_id,
+        identifier=[{"system": "urn:carepack:mrn", "value": p.get("mrn", "")}],
+        name=[{"text": p.get("full_name", "")}],
+        birthDate=p.get("date_of_birth"),
+        gender=p.get("gender"),
+    )
 
 
 @app.get("/fhir/R4/Patient")
 async def search_patients(
+    x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
     name: str | None = Query(None),
     identifier: str | None = Query(None),
     _count: int = Query(20, alias="_count"),
 ):
     """
-    FHIR _search — standard search params.
-    S12: full search implementation with tenant scoping.
+    FHIR _search — proxies to patient-service with tenant scoping.
+    S12: replace with OpenSearch for fuzzy matching + MRN indexing.
     """
-    log.info(
-        "fhir_patient_search",
-        has_name=bool(name),
-        has_identifier=bool(identifier),
-        requested_count=_count,
-    )
-    # S12: OpenSearch query goes here
-    return {"resourceType": "Bundle", "type": "searchset", "total": 0, "entry": []}
+    log.info("fhir_patient_search", has_name=bool(name), has_identifier=bool(identifier))
+
+    params = {"limit": _count}
+    if name:
+        params["name"] = name
+    if identifier:
+        params["identifier"] = identifier
+
+    try:
+        resp = await http_client.get(
+            f"{PATIENT_SERVICE_URL}/v1/patients",
+            headers={"X-Tenant-ID": x_tenant_id},
+            params=params,
+        )
+    except httpx.ConnectError:
+        return {"resourceType": "Bundle", "type": "searchset", "total": 0, "entry": []}
+
+    if resp.status_code != 200:
+        return {"resourceType": "Bundle", "type": "searchset", "total": 0, "entry": []}
+
+    patients = resp.json() if isinstance(resp.json(), list) else resp.json().get("data", [])
+    entries = [
+        {
+            "resource": {
+                "resourceType": "Patient",
+                "id": p.get("id"),
+                "identifier": [{"system": "urn:carepack:mrn", "value": p.get("mrn", "")}],
+                "name": [{"text": p.get("full_name", "")}],
+            }
+        }
+        for p in patients
+    ]
+    return {"resourceType": "Bundle", "type": "searchset", "total": len(entries), "entry": entries}
 
 
 # ── FHIR Observation endpoints ────────────────────────────────────────────────

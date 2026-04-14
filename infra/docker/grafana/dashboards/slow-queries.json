@@ -1,0 +1,174 @@
+{
+  "title": "CarePulse — Slow Query Analysis",
+  "uid": "carepack-slow-queries",
+  "tags": ["postgres", "performance"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Top 20 Slowest Queries (mean execution time)",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 10 },
+      "datasource": "PostgreSQL",
+      "options": {
+        "sortBy": [{ "displayName": "mean_exec_ms", "desc": true }]
+      },
+      "fieldConfig": {
+        "overrides": [
+          {
+            "matcher": { "id": "byName", "options": "mean_exec_ms" },
+            "properties": [
+              { "id": "unit", "value": "ms" },
+              {
+                "id": "thresholds",
+                "value": {
+                  "mode": "absolute",
+                  "steps": [
+                    { "color": "green", "value": null },
+                    { "color": "yellow", "value": 100 },
+                    { "color": "red", "value": 500 }
+                  ]
+                }
+              },
+              { "id": "custom.displayMode", "value": "color-background" }
+            ]
+          },
+          {
+            "matcher": { "id": "byName", "options": "total_exec_ms" },
+            "properties": [{ "id": "unit", "value": "ms" }]
+          },
+          {
+            "matcher": { "id": "byName", "options": "query" },
+            "properties": [{ "id": "custom.width", "value": 700 }]
+          }
+        ]
+      },
+      "targets": [
+        {
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT\n  LEFT(query, 120)          AS query,\n  calls,\n  ROUND(mean_exec_time::numeric, 2)  AS mean_exec_ms,\n  ROUND(total_exec_time::numeric, 2) AS total_exec_ms,\n  rows\nFROM pg_stat_statements\nWHERE query NOT LIKE '%pg_stat_statements%'\n  AND query NOT LIKE '%pg_advisory%'\n  AND calls > 5\nORDER BY mean_exec_time DESC\nLIMIT 20;",
+          "format": "table",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Top 10 Most Called Queries",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 10, "w": 12, "h": 8 },
+      "datasource": "PostgreSQL",
+      "targets": [
+        {
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT\n  LEFT(query, 100) AS query,\n  calls,\n  ROUND(mean_exec_time::numeric, 2) AS mean_exec_ms\nFROM pg_stat_statements\nWHERE query NOT LIKE '%pg_stat%'\n  AND calls > 5\nORDER BY calls DESC\nLIMIT 10;",
+          "format": "table",
+          "refId": "B"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Top 10 Queries by Total Time Spent",
+      "type": "table",
+      "gridPos": { "x": 12, "y": 10, "w": 12, "h": 8 },
+      "datasource": "PostgreSQL",
+      "targets": [
+        {
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT\n  LEFT(query, 100) AS query,\n  calls,\n  ROUND(total_exec_time::numeric, 0) AS total_exec_ms,\n  ROUND(mean_exec_time::numeric, 2)  AS mean_exec_ms\nFROM pg_stat_statements\nWHERE query NOT LIKE '%pg_stat%'\n  AND calls > 5\nORDER BY total_exec_time DESC\nLIMIT 10;",
+          "format": "table",
+          "refId": "C"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Cache Hit Ratio (should be > 99%)",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 18, "w": 6, "h": 4 },
+      "datasource": "PostgreSQL",
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "yellow", "value": 0.95 },
+              { "color": "green", "value": 0.99 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT\n  ROUND(\n    SUM(heap_blks_hit)::numeric /\n    NULLIF(SUM(heap_blks_hit) + SUM(heap_blks_read), 0),\n  4) AS cache_hit_ratio\nFROM pg_statio_user_tables;",
+          "format": "table",
+          "refId": "D"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Active Connections",
+      "type": "stat",
+      "gridPos": { "x": 6, "y": 18, "w": 6, "h": 4 },
+      "datasource": "PostgreSQL",
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 50 },
+              { "color": "red", "value": 80 }
+            ]
+          }
+        }
+      },
+      "targets": [
+        {
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT COUNT(*) AS active_connections\nFROM pg_stat_activity\nWHERE state = 'active';",
+          "format": "table",
+          "refId": "E"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Table Bloat — Dead Tuples",
+      "type": "table",
+      "gridPos": { "x": 0, "y": 22, "w": 14, "h": 7 },
+      "datasource": "PostgreSQL",
+      "targets": [
+        {
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT\n  relname          AS table_name,\n  n_live_tup       AS live_rows,\n  n_dead_tup       AS dead_rows,\n  ROUND(\n    n_dead_tup::numeric /\n    NULLIF(n_live_tup + n_dead_tup, 0) * 100,\n  2) AS dead_pct,\n  last_autovacuum\nFROM pg_stat_user_tables\nWHERE n_dead_tup > 100\nORDER BY dead_pct DESC\nLIMIT 15;",
+          "format": "table",
+          "refId": "F"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Index Usage — Unused Indexes",
+      "type": "table",
+      "gridPos": { "x": 14, "y": 22, "w": 10, "h": 7 },
+      "datasource": "PostgreSQL",
+      "targets": [
+        {
+          "datasource": "PostgreSQL",
+          "rawSql": "SELECT\n  schemaname,\n  tablename,\n  indexname,\n  idx_scan AS times_used\nFROM pg_stat_user_indexes\nWHERE idx_scan < 10\n  AND schemaname = 'public'\nORDER BY idx_scan ASC\nLIMIT 15;",
+          "format": "table",
+          "refId": "G"
+        }
+      ]
+    }
+  ],
+  "schemaVersion": 38
+}

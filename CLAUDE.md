@@ -27,6 +27,56 @@ Project **`.mcp.json`** wires the CodeRabbit MCP server. Set **`GITHUB_PAT`** in
 
 Do not commit secrets, API keys, or real PHI. Prefer env files (gitignored) and secure backends for any future health data.
 
+## Current Sprint
+
+**S4 — Risk engine + FHIR stub + projection hardening (Wk 7-8)**
+
+Next up → S5: Debezium CDC + outbox pipeline (Wk 9-10)
+
+Completed: S1 monorepo bootstrap, S2 core write/read/auth, S3 NestJS domain services + alert pipeline + AWS (DynamoDB/S3/Lambda/CDK).
+
+## Coding Standards
+
+- **Commits:** Always use Conventional Commits — `feat(service):`, `fix(service):`, `chore:`, `test:`, `docs:`
+- **No inline comments** in production code — code should be self-documenting; use comments only for non-obvious algorithmic decisions
+- **No dead code** — delete it, don't comment it out
+- **Error handling:** Every async function must handle errors explicitly — no silent swallows
+- **Env vars:** Never hardcode — always `os.getenv()` / `process.env` with a sensible default or startup panic
+- **Tests:** Every new service file needs a corresponding test file — Go `_test.go`, Python `test_*.py`, Node `*.spec.ts`
+
+## Self-Verify Pattern
+
+After writing any feature, always:
+1. Run the service's test suite
+2. Check types compile (`go build ./...` / `tsc --noEmit` / `ruff check`)
+3. Verify the Kafka topic or DB table the feature writes to actually receives data
+4. Confirm OTel trace_id appears in the log output
+
+## Service Test Commands
+
+```bash
+# Go services
+cd services/<name> && go test ./... -v
+
+# Python services (risk-engine, fhir-gateway, search-indexer)
+cd services/<name> && python -m pytest -v
+
+# NestJS services (patient-service, workflow-alerts, billing-service)
+cd services/<name> && npm test
+
+# Lint all
+npm run lint
+cd services/risk-engine && ruff check .
+cd services/<go-service> && golangci-lint run
+```
+
+## Playwright MCP (S12 E2E tests)
+
+Playwright MCP is wired in `.mcp.json`. Use it for:
+- Login → dashboard → acknowledge alert → check audit trail
+- Clinician risk score flow
+- Admin tenant management
+
 <!-- code-review-graph MCP tools -->
 ## MCP Tools: code-review-graph
 

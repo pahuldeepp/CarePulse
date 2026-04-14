@@ -10,6 +10,7 @@ on:
       - 'services/saga-orchestrator/**'
       - 'packages/otel-go/**'
       - 'go.work'
+      - 'go.work.sum'
   pull_request:
     paths:
       - 'services/telemetry-ingest/**'
@@ -18,6 +19,7 @@ on:
       - 'services/saga-orchestrator/**'
       - 'packages/otel-go/**'
       - 'go.work'
+      - 'go.work.sum'
 
 jobs:
   lint-and-test:

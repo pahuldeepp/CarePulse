@@ -11,6 +11,10 @@
       "type": "stdio",
       "command": "/Users/pahuldeep/Desktop/CarePulse/.venv/bin/code-review-graph",
       "args": ["serve"]
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["@playwright/mcp@latest"]
     }
   }
 }

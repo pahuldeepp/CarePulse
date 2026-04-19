@@ -147,7 +147,9 @@ func StartDLQReprocessor(ctx context.Context) error {
 			}
 			if originalTopic == "" {
 				log.Warn().Int64("offset", msg.Offset).Msg("dlq message missing original topic header — skipping")
-				r.CommitMessages(ctx, msg)
+				if err := r.CommitMessages(ctx, msg); err != nil {
+					log.Error().Err(err).Msg("dlq commit (skip) failed")
+				}
 				continue
 			}
 
@@ -180,7 +182,9 @@ func StartDLQReprocessor(ctx context.Context) error {
 				Int64("dlq_offset", msg.Offset).
 				Msg("dlq_message_reprocessed")
 
-			r.CommitMessages(ctx, msg)
+			if err := r.CommitMessages(ctx, msg); err != nil {
+				log.Error().Err(err).Msg("dlq commit (after reprocess) failed")
+			}
 		}
 	}
 	return nil

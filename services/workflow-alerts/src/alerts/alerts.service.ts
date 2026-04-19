@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
 import { PrismaService } from '../prisma/prisma.service';
+import { RedisService } from '../redis/redis.service';
 
 export interface RiskScoredEvent {
   device_id: string;
@@ -18,7 +19,10 @@ export class AlertsService {
   private readonly dynamo = new DynamoDBClient({});
   private readonly alertsTable = process.env.DYNAMODB_TABLE ?? 'carepulse-alerts';
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly redis: RedisService,
+  ) {}
 
   async handleRiskScored(event: RiskScoredEvent): Promise<void> {
     // risk-engine sets emit_alert=false for duplicate readings within DEDUP_TTL.
@@ -42,6 +46,20 @@ export class AlertsService {
     // DynamoDB INSERT triggers stream_handler Lambda via DynamoDB Streams.
     // This is the entry point into the 15-min NHS NEWS2 escalation flow.
     await this.writeToDynamo(alert.alert_id, event);
+
+    // Redis PUBLISH — pushes alert to gateway-graphql subscription resolver.
+    // Channel is scoped per tenant: alerts:{tenantId}
+    // gateway-graphql has a redisSubscriber listening on this channel.
+    // Each connected clinician WebSocket receives the alert in real-time (<50ms).
+    // Failure here is non-fatal — alert is already in Postgres + DynamoDB.
+    await this.redis.publish(`alerts:${event.tenant_id}`, {
+      id:          alert.alert_id,
+      severity:    event.risk_level,
+      status:      'open',
+      news2:       event.news2,
+      qsofa:       event.qsofa,
+      triggeredAt: event.scored_at,
+    });
 
     this.logger.log(
       `alert_created alert_id=${alert.alert_id} severity=${event.risk_level} device_id=${event.device_id}`,

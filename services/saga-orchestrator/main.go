@@ -55,13 +55,23 @@ func main() {
 	defer rdb.Close()
 
 	mux := http.NewServeMux()
+
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("POST /v1/sagas/device-provision", handleProvision)
 	mux.HandleFunc("GET /v1/sagas/{saga_id}", handleGetSaga)
 
-	srv := &http.Server{Addr: ":8082", Handler: mux}
+	// Port 8085 — avoids collision with Debezium Connect REST API (8088)
+	// and other services. saga-orchestrator is the orchestration layer.
+	srv := &http.Server{
+		Addr:         ":" + port(),
+		Handler:      mux,
+		ReadTimeout:  35 * time.Second, // saga can take up to 30s across 3 service calls
+		WriteTimeout: 35 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
 	go func() {
 		log.Info().Str("addr", srv.Addr).Msg("saga-orchestrator listening")
 		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
@@ -75,8 +85,17 @@ func main() {
 
 	shutCtx, shutCancel := context.WithTimeout(ctx, 10*time.Second)
 	defer shutCancel()
-	srv.Shutdown(shutCtx) //nolint:errcheck
+	if err := srv.Shutdown(shutCtx); err != nil {
+		log.Error().Err(err).Msg("shutdown error")
+	}
 	log.Info().Msg("saga-orchestrator stopped")
+}
+
+func port() string {
+	if p := os.Getenv("PORT"); p != "" {
+		return p
+	}
+	return "8085"
 }
 
 func handleProvision(w http.ResponseWriter, r *http.Request) {
@@ -102,6 +121,7 @@ func handleProvision(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := saveSaga(r.Context(), state); err != nil {
+		log.Error().Err(err).Str("saga_id", sagaID).Msg("saga_init_save_failed")
 		http.Error(w, "failed to init saga", http.StatusInternalServerError)
 		return
 	}
@@ -113,16 +133,18 @@ func handleProvision(w http.ResponseWriter, r *http.Request) {
 
 		state.Status = "failed"
 		state.UpdatedAt = time.Now().UTC()
-		saveSaga(r.Context(), state) //nolint:errcheck
+		if saveErr := saveSaga(r.Context(), state); saveErr != nil {
+			log.Error().Err(saveErr).Str("saga_id", sagaID).Msg("saga_failed_state_save_error")
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		if err := json.NewEncoder(w).Encode(map[string]any{
+		if encErr := json.NewEncoder(w).Encode(map[string]any{
 			"saga_id":        sagaID,
 			"status":         "failed",
 			"failed_at_step": failedStep,
-		}); err != nil {
-			log.Error().Err(err).Msg("encode_saga_error_failed")
+		}); encErr != nil {
+			log.Error().Err(encErr).Msg("encode_saga_error_failed")
 		}
 		return
 	}
@@ -130,15 +152,17 @@ func handleProvision(w http.ResponseWriter, r *http.Request) {
 	state.Status = "completed"
 	state.Step = 3
 	state.UpdatedAt = time.Now().UTC()
-	saveSaga(r.Context(), state) //nolint:errcheck
+	if saveErr := saveSaga(r.Context(), state); saveErr != nil {
+		log.Error().Err(saveErr).Str("saga_id", sagaID).Msg("saga_completed_state_save_error")
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
-	if err := json.NewEncoder(w).Encode(map[string]any{
+	if encErr := json.NewEncoder(w).Encode(map[string]any{
 		"saga_id": sagaID,
 		"status":  "completed",
-	}); err != nil {
-		log.Error().Err(err).Msg("encode_saga_complete_failed")
+	}); encErr != nil {
+		log.Error().Err(encErr).Msg("encode_saga_complete_failed")
 	}
 }
 
@@ -169,7 +193,9 @@ func runSaga(ctx context.Context, sagaID string, req provisionRequest, state *sa
 	}
 	state.Step = 1
 	state.UpdatedAt = time.Now().UTC()
-	saveSaga(ctx, state) //nolint:errcheck
+	if saveErr := saveSaga(ctx, state); saveErr != nil {
+		log.Error().Err(saveErr).Str("saga_id", sagaID).Int("step", 1).Msg("saga_step_save_error")
+	}
 	log.Info().Str("saga_id", sagaID).Msg("saga_step1_complete")
 
 	// Step 2 — create patient record
@@ -189,7 +215,9 @@ func runSaga(ctx context.Context, sagaID string, req provisionRequest, state *sa
 	}
 	state.Step = 2
 	state.UpdatedAt = time.Now().UTC()
-	saveSaga(ctx, state) //nolint:errcheck
+	if saveErr := saveSaga(ctx, state); saveErr != nil {
+		log.Error().Err(saveErr).Str("saga_id", sagaID).Int("step", 2).Msg("saga_step_save_error")
+	}
 	log.Info().Str("saga_id", sagaID).Msg("saga_step2_complete")
 
 	// Step 3 — emit provisioned event to Kafka

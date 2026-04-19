@@ -120,26 +120,36 @@ CarePulse/
 | Service | Runtime | Port | Sprint | Status |
 |---------|---------|------|--------|--------|
 | telemetry-ingest | Go | 8080 | S1 | ✅ |
-| projection-builder | Go | 8081 | S2 | ✅ Kafka consumer + dashboard upsert |
+| projection-builder | Go | 8081 | S2–S5 | ✅ Kafka consumer + dashboard upsert + DLQ routing |
 | asset-registry | Go | 8082 | S1 | ✅ |
 | saga-orchestrator | Go | 8083 | S1 | ✅ |
-| risk-engine | Python/FastAPI | 8001 | S3 | 🔜 NEWS2 scoring |
+| risk-engine | Python/FastAPI | 8001 | S3 | ✅ NEWS2 + qSOFA scoring, Kafka consumer, Redis dedup |
 | fhir-gateway | Python/FastAPI | 8002 | S1 | ✅ |
 | search-indexer | Python asyncio | 8084 | S1 | ✅ |
-| gateway-graphql | Node/Express/Apollo | 4000 | S2 | ✅ JWT auth + Patient GraphQL |
-| jobs-worker | Node/RabbitMQ | 4001 | S1 | ✅ |
+| gateway-graphql | Node/Express/Apollo | 4000 | S2–S4 | ✅ JWT auth + GraphQL subscriptions + DataLoader |
+| jobs-worker | Node/RabbitMQ | 4001 | S1–S5 | ✅ Outbox reaper (purge + stuck-event re-publish) |
 | notification-service | Node/RabbitMQ | 4002 | S1 | ✅ |
-| patient-service | NestJS/Prisma | 3000 | S2 | ✅ Outbox pattern + RLS |
-| workflow-alerts | NestJS | 3001 | S3 | 🔜 Alert pipeline |
+| patient-service | NestJS/Prisma | 3000 | S2 | ✅ Outbox pattern + RLS + full CRUD |
+| workflow-alerts | NestJS | 3001 | S3–S4 | ✅ Alert creation, ack, DynamoDB mirror, Redis pub/sub |
 | billing-service | NestJS/Stripe | 3002 | S1 | ✅ |
+| read-model-builder | Go | 8086 | S5 | ✅ ward_occupancy + alerts_by_priority projections |
 
-### S2 highlights
+### S5 highlights (R3)
+
+- **Debezium CDC** — Kafka Connect 2.7 tails Postgres WAL via `pgoutput`; outbox_events → `cdc.outbox.events`; `register-connector.sh` for idempotent setup
+- **Outbox reaper** — jobs-worker tick (60s default): purges processed rows > TTL, re-publishes stuck pending rows to Kafka as fallback for Debezium downtime
+- **Kafka DLQ** — projection-builder routes poison messages (5 retries exhausted) to `patient.created.dlq`; `StartDLQReprocessor` re-emits on demand via `REPROCESS_DLQ_TOPICS`
+- **read-model-builder** — Go consumer on `domain.risk.scored` atomically upserts `ward_occupancy_projection` and `alerts_by_priority` (priority-sorted, tenant-scoped)
+- **OpenSearch** — added to docker-compose (single-node dev, port 9200); ready for S6 search-indexer bulk indexing
+
+### S2–S4 highlights
 
 - **Multi-tenant Postgres** — Row-Level Security on all tables; `app.current_tenant_id` set per transaction
 - **Transactional outbox** — patient + Kafka event written atomically; relay ensures no lost events
-- **Kafka topics** — `patient.created`, `patient.updated`, `alert.triggered` provisioned on boot
+- **Kafka topics** — `patient.created`, `patient.updated`, `alert.triggered`, `domain.risk.scored` provisioned on boot
 - **projection-builder** — Go consumer upserts `patient_dashboard_projection` read model
-- **GraphQL gateway** — HS256 JWT auth, RBAC role guard, `patient` / `patients` queries with tenant isolation
+- **GraphQL gateway** — HS256 JWT auth, RBAC role guard, subscriptions via graphql-ws, DataLoader N+1 elimination
+- **Redis pub/sub** — workflow-alerts PUBLISH → gateway-graphql per-connection subscriber → WebSocket push < 50ms
 - **Observability** — zerolog/Winston/structlog with OTel trace_id + span_id correlation
 
 ---

@@ -67,6 +67,8 @@ func StartConsumer(ctx context.Context) error {
 		// Retry up to maxRetries before skipping poison messages so a bad
 		// message doesn't block partition progress indefinitely.
 		const maxRetries = 5
+		dlq := NewDLQWriter()
+		defer dlq.Close()
 		var handleErr error
 		for attempt := 1; attempt <= maxRetries; attempt++ {
 			if handleErr = handleMessage(ctx, pool, msg); handleErr == nil {
@@ -77,17 +79,18 @@ func StartConsumer(ctx context.Context) error {
 				Int64("offset", msg.Offset).
 				Int("attempt", attempt).
 				Msg("message handling failed")
-			if attempt == maxRetries {
-				log.Error().
-					Str("topic", msg.Topic).
-					Int64("offset", msg.Offset).
-					Msg("max retries exceeded — skipping poison message")
+			if attempt < maxRetries {
+				time.Sleep(time.Duration(attempt) * 200 * time.Millisecond)
 			}
 		}
 		if handleErr != nil {
-			// Commit the offset anyway so we don't reprocess indefinitely
+			// Route to DLQ before committing — ensures the message is preserved
+			// for inspection and later reprocessing via StartDLQReprocessor.
+			if dlqErr := dlq.WriteToDLQ(ctx, msg, handleErr, maxRetries); dlqErr != nil {
+				log.Error().Err(dlqErr).Msg("dlq write failed — message will be lost")
+			}
 			if err := r.CommitMessages(ctx, msg); err != nil {
-				log.Error().Err(err).Msg("commit (skip) failed")
+				log.Error().Err(err).Msg("commit (after dlq) failed")
 			}
 			continue
 		}

@@ -9,12 +9,14 @@ services:
       POSTGRES_USER: carepack
       POSTGRES_PASSWORD: carepack
       POSTGRES_DB: carepack
+    # wal_level=logical required for Debezium CDC (pgoutput plugin needs WAL replication)
     command: >
       postgres
         -c shared_preload_libraries=pg_stat_statements
         -c pg_stat_statements.track=all
         -c pg_stat_statements.max=10000
         -c track_activity_query_size=2048
+        -c wal_level=logical
     ports:
       - "5432:5432"
     volumes:
@@ -55,10 +57,13 @@ services:
     environment:
       KAFKA_NODE_ID: 1
       KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT
+      # Two listener entries: PLAINTEXT for inter-container traffic (hostname),
+      # EXTERNAL for host-machine clients (localhost). Debezium Connect uses
+      # KAFKA_BOOTSTRAP=kafka:9092 (internal) so it doesn't hit the NAT issue.
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,EXTERNAL://0.0.0.0:9093,CONTROLLER://0.0.0.0:9094
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,EXTERNAL://localhost:9093
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9094
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
@@ -68,7 +73,8 @@ services:
       KAFKA_LOG_DIRS: /var/lib/kafka/data
       CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qg  # valid 22-char base64 KRaft UUID
     ports:
-      - "9092:9092"
+      - "9092:9092"   # inter-container (services use kafka:9092)
+      - "9093:9093"   # host-to-container (dev tools use localhost:9093)
     volumes:
       - kafka_data:/var/lib/kafka/data
     healthcheck:
@@ -113,6 +119,60 @@ services:
       interval: 10s
       timeout: 10s
       retries: 10
+
+  # ── Debezium Kafka Connect ────────────────────────────────────────────────────
+  # Tails Postgres WAL via pgoutput, routes outbox_events → cdc.outbox.events
+  # Port 8088 (not 8083) to avoid collision with saga-orchestrator default port
+  connect:
+    image: quay.io/debezium/connect:2.7
+    container_name: carepack-connect
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    environment:
+      BOOTSTRAP_SERVERS: kafka:9092   # internal listener — containers can reach this
+      GROUP_ID: carepack-connect-cluster
+      CONFIG_STORAGE_TOPIC: carepack.connect.configs
+      OFFSET_STORAGE_TOPIC: carepack.connect.offsets
+      STATUS_STORAGE_TOPIC: carepack.connect.status
+      CONFIG_STORAGE_REPLICATION_FACTOR: "1"
+      OFFSET_STORAGE_REPLICATION_FACTOR: "1"
+      STATUS_STORAGE_REPLICATION_FACTOR: "1"
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_PLUGIN_PATH: /kafka/connect
+      # Override the REST port so it does not collide with saga-orchestrator (8083)
+      REST_PORT: "8088"
+    ports:
+      - "8088:8088"   # Kafka Connect REST API — curl http://localhost:8088/connectors
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8088/connectors || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 60s
+
+  # ── OpenSearch (search-indexer target) ───────────────────────────────────────
+  opensearch:
+    image: opensearchproject/opensearch:2.13.0
+    container_name: carepack-opensearch
+    restart: unless-stopped
+    environment:
+      discovery.type: single-node
+      OPENSEARCH_INITIAL_ADMIN_PASSWORD: CarePulse_Admin1!
+      plugins.security.disabled: "true"   # dev-only; enable TLS in prod
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
 
   # ── postgres-exporter — exposes pg_stat_statements to Prometheus ─────────────
   postgres-exporter:
@@ -172,5 +232,6 @@ volumes:
   kafka_data:
   redis_data:
   rabbitmq_data:
+  opensearch_data:
   prometheus_data:
   grafana_data:

@@ -50,27 +50,47 @@ func main() {
 		consumeRiskEvents(ctx)
 	}()
 
+	// Healthcheck — ReadTimeout/WriteTimeout/IdleTimeout prevent slow-loris attacks
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
-	srv := &http.Server{Addr: ":8085", Handler: mux}
+	srv := &http.Server{
+		Addr:         ":" + port(),
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
 	go func() {
 		log.Info().Str("addr", srv.Addr).Msg("read-model-builder listening")
-		srv.ListenAndServe() //nolint:errcheck
+		if err := srv.ListenAndServe(); err != http.ErrServerClosed {
+			log.Fatal().Err(err).Msg("server error")
+		}
 	}()
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
 	<-quit
 
+	// Cancel consumers BEFORE shutting down the HTTP server so they stop
+	// committing offsets during the drain window.
 	cancel()
 	wg.Wait()
 
 	shutCtx, shutCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutCancel()
-	srv.Shutdown(shutCtx) //nolint:errcheck
+	if err := srv.Shutdown(shutCtx); err != nil {
+		log.Error().Err(err).Msg("shutdown error")
+	}
 	log.Info().Msg("read-model-builder stopped")
+}
+
+func port() string {
+	if p := os.Getenv("PORT"); p != "" {
+		return p
+	}
+	return "8086"
 }
 
 func migrate(ctx context.Context) error {
@@ -168,7 +188,7 @@ func upsertPatientProjection(ctx context.Context, eventID, patientID, tenantID, 
 	return err
 }
 
-// consumeRiskEvents — domain.risk.scored → patient_risk_latest (S4)
+// consumeRiskEvents — domain.risk.scored → patient_risk_latest
 func consumeRiskEvents(ctx context.Context) {
 	r := kafka.NewReader(kafka.ReaderConfig{
 		Brokers: []string{getEnv("KAFKA_BOOTSTRAP", "localhost:9092")},

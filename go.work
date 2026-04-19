@@ -4,6 +4,7 @@ use (
 	./packages/otel-go
 	./services/asset-registry
 	./services/projection-builder
+	./services/read-model-builder
 	./services/saga-orchestrator
 	./services/telemetry-ingest
 )

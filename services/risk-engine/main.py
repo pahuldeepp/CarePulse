@@ -173,7 +173,7 @@ def risk_level(news2: int, qsofa: int) -> str:
         return "critical"
     if news2 >= 5:
         return "high"
-    if news2 >= 1:
+    if news2 >= 2:
         return "medium"
     return "low"
 

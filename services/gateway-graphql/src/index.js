@@ -6,16 +6,24 @@ const { correlationFormat } = require('@carepack/otel-node/correlation');
 
 const fs                    = require('fs');
 const path                  = require('path');
+const http                  = require('http');
 const express               = require('express');
 const { ApolloServer }      = require('@apollo/server');
 const { expressMiddleware }  = require('@apollo/server/express4');
-const { createLogger, format, transports } = require('winston');
-const { Pool }              = require('pg');
+const { makeExecutableSchema } = require('@graphql-tools/schema');
+const { useServer }         = require('graphql-ws/lib/use/ws');
+const { WebSocketServer }   = require('ws');
+const DataLoader            = require('dataloader');
 const depthLimit            = require('graphql-depth-limit');
 const { createComplexityLimitRule } = require('graphql-query-complexity');
+const { createLogger, format, transports } = require('winston');
+const { Pool }              = require('pg');
+const Redis                 = require('ioredis');
+const jwt                   = require('jsonwebtoken');
+const jwksClient            = require('jwks-rsa');
 
-const { authMiddleware } = require('./middleware/auth');
-const { buildContext }   = require('./context');
+const { authMiddleware }   = require('./middleware/auth');
+const { buildContext }     = require('./context');
 
 // ── Logger ────────────────────────────────────────────────────────────────────
 const logger = createLogger({
@@ -45,6 +53,32 @@ const PERSISTED_QUERIES = JSON.parse(
 );
 const IS_PROD = process.env.NODE_ENV === 'production';
 
+// ── Redis URL ─────────────────────────────────────────────────────────────────
+const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379';
+
+// NOTE: We do NOT create a shared redisSubscriber here.
+// Redis pub/sub requires a dedicated connection per subscriber — once a client
+// calls SUBSCRIBE it can no longer issue regular commands on that connection.
+// Each WebSocket subscription creates its own Redis client (see Subscription resolver).
+
+// ── JWKS client for WebSocket auth ───────────────────────────────────────────
+// Verifies JWTs on WebSocket connect — required for HIPAA compliance.
+// JWKS_URI must be set (e.g. https://auth.example.com/.well-known/jwks.json).
+const jwks = jwksClient({
+  jwksUri: process.env.JWKS_URI ?? 'http://localhost:4001/.well-known/jwks.json',
+  cache: true,
+  rateLimit: true,
+});
+
+async function verifyWsToken(token) {
+  if (!token) throw new Error('Missing WebSocket auth token');
+  const decoded = jwt.decode(token, { complete: true });
+  if (!decoded?.header?.kid) throw new Error('Invalid token header');
+  const key = await jwks.getSigningKey(decoded.header.kid);
+  const signingKey = key.getPublicKey();
+  return jwt.verify(token, signingKey, { algorithms: ['RS256'] });
+}
+
 // ── GraphQL schema ────────────────────────────────────────────────────────────
 const typeDefs = `#graphql
   type PatientSummary {
@@ -56,6 +90,16 @@ const typeDefs = `#graphql
     status:     String!
     news2Score: Int
     updatedAt:  String!
+    alerts:     [AlertSummary!]!
+  }
+
+  type AlertSummary {
+    id:         String!
+    severity:   String!
+    status:     String!
+    news2:      Float
+    qsofa:      Float
+    triggeredAt: String!
   }
 
   type Query {
@@ -67,14 +111,50 @@ const typeDefs = `#graphql
     # Paginated patient list — cursor is patient ID, ordered by updated_at DESC
     patients(first: Int, after: String): [PatientSummary!]!
   }
+
+  type Subscription {
+    # Real-time alert feed for a tenant — fires when domain.risk.scored publishes
+    alertTriggered(tenantId: String!): AlertSummary!
+  }
 `;
 
+// ── DataLoader — batch-loads alerts for N patients in one query ───────────────
+// Without this: 1 patient list query + N alert queries (N+1 problem).
+// With this: 1 patient list query + 1 batched alert query regardless of N.
+function makeAlertLoader(tenantId) {
+  return new DataLoader(async (patientIds) => {
+    const rows = await pool.query(
+      `SELECT patient_id, id, severity, status, news2, qsofa, triggered_at
+       FROM alerts
+       WHERE patient_id = ANY($1::uuid[])
+         AND tenant_id  = $2
+         AND status     = 'open'
+       ORDER BY triggered_at DESC`,
+      [patientIds, tenantId],
+    );
+
+    // Group by patient_id — DataLoader requires results in same order as keys
+    const byPatient = {};
+    for (const row of rows.rows) {
+      (byPatient[row.patient_id] ??= []).push({
+        id:          row.id,
+        severity:    row.severity,
+        status:      row.status,
+        news2:       row.news2,
+        qsofa:       row.qsofa,
+        triggeredAt: row.triggered_at?.toISOString(),
+      });
+    }
+    return patientIds.map((id) => byPatient[id] ?? []);
+  });
+}
+
+// ── Resolvers ─────────────────────────────────────────────────────────────────
 const resolvers = {
   Query: {
     health: () => 'ok',
 
     patient: async (_parent, { id }, ctx) => {
-      // Explicit tenant_id filter as defence-in-depth alongside RLS
       const rows = await ctx.tenantQuery(
         `SELECT id, tenant_id, mrn, full_name, ward, status, news2_score, updated_at
          FROM patient_dashboard_projection
@@ -103,6 +183,73 @@ const resolvers = {
         [ctx.user.tenantId, after ?? null, first],
       );
       return rows.map(mapRow);
+    },
+  },
+
+  // Field resolver — uses DataLoader so N patients = 1 DB round-trip
+  PatientSummary: {
+    alerts: (patient, _args, ctx) => ctx.alertLoader.load(patient.id),
+  },
+
+  Subscription: {
+    alertTriggered: {
+      subscribe: async function* (_parent, { tenantId }) {
+        const channel = `alerts:${tenantId}`;
+
+        // ✅ One Redis connection per WebSocket subscription.
+        // When this clinician disconnects, THIS client is destroyed — no impact on others.
+        // Redis pub/sub connections cannot issue regular commands, so isolation is mandatory.
+        const sub = new Redis(REDIS_URL);
+        await sub.subscribe(channel);
+
+        // Message queue + resolver pattern bridges Redis event emitter → async generator.
+        // Queue is capped at MAX_QUEUE to prevent unbounded memory growth if the consumer
+        // is slower than the publisher (drop-oldest policy, same as circuit breaker).
+        const MAX_QUEUE = 1000;
+        const queue = [];
+        let resolve = null;
+
+        const onMessage = (ch, message) => {
+          if (ch !== channel) return;
+          try {
+            const alert = JSON.parse(message);
+            if (resolve) {
+              const r = resolve;
+              resolve = null;
+              r(alert);        // unblock the awaiting generator
+            } else {
+              if (queue.length >= MAX_QUEUE) {
+                // Drop oldest to prevent unbounded memory growth
+                queue.shift();
+                logger.warn({ msg: 'subscription_queue_overflow', channel, dropped: 1 });
+              }
+              queue.push(alert);
+            }
+          } catch (err) {
+            // Log malformed JSON — silent swallow hides bugs in publishers
+            logger.warn({ msg: 'subscription_invalid_json', channel, error: err.message });
+          }
+        };
+
+        sub.on('message', onMessage);
+
+        try {
+          while (true) {
+            if (queue.length > 0) {
+              yield { alertTriggered: queue.shift() };
+            } else {
+              // Suspend until next Redis message arrives
+              yield { alertTriggered: await new Promise((r) => { resolve = r; }) };
+            }
+          }
+        } finally {
+          // ✅ Clean teardown when WebSocket closes or client disconnects
+          sub.off('message', onMessage);   // remove listener before disconnect
+          await sub.unsubscribe(channel);
+          await sub.quit();                // close the dedicated connection
+          logger.debug({ msg: 'subscription_closed', channel });
+        }
+      },
     },
   },
 };
@@ -194,12 +341,46 @@ const persistedQueryPlugin = {
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 async function main() {
-  const app = express();
+  const schema = makeExecutableSchema({ typeDefs, resolvers });
+
+  const app    = express();
+  const server = http.createServer(app);
+
   app.use(express.json());
 
   // Health check — no auth required
   app.get('/healthz', (_req, res) => res.sendStatus(200));
 
+  // ── WebSocket server for GraphQL subscriptions ────────────────────────────
+  // onConnect verifies the JWT from connectionParams before allowing the
+  // subscription to proceed. This is HIPAA-critical: without it, any caller
+  // can subscribe to any tenantId's alert stream without authentication.
+  const wss = new WebSocketServer({ server, path: '/graphql' });
+  useServer(
+    {
+      schema,
+      onConnect: async (ctx) => {
+        const token = ctx.connectionParams?.authorization;
+        try {
+          const claims = await verifyWsToken(token);
+          // Attach verified claims to the WS context for use in resolvers
+          ctx.extra.claims = claims;
+          logger.debug({ msg: 'ws_auth_ok', sub: claims.sub });
+        } catch (err) {
+          logger.warn({ msg: 'ws_auth_failed', error: err.message });
+          return false; // reject the connection
+        }
+      },
+      context: async (ctx) => {
+        // tenantId is derived from the verified JWT, not from untrusted client params
+        const tenantId = ctx.extra.claims?.tenant_id ?? 'unknown';
+        return { tenantId, alertLoader: makeAlertLoader(tenantId) };
+      },
+    },
+    wss,
+  );
+
+  // ── Apollo HTTP server ────────────────────────────────────────────────────
   const apollo = new ApolloServer({
     typeDefs,
     resolvers,
@@ -222,17 +403,21 @@ async function main() {
 
   await apollo.start();
 
-  // All GraphQL requests require a valid JWT
   app.use(
     '/graphql',
     authMiddleware,
     expressMiddleware(apollo, {
-      context: ({ req }) => buildContext({ req, pool }),
+      context: ({ req }) => {
+        const ctx = buildContext({ req, pool });
+        // Attach a fresh DataLoader per request (never share across requests)
+        ctx.alertLoader = makeAlertLoader(ctx.user?.tenantId);
+        return ctx;
+      },
     }),
   );
 
   const port = process.env.PORT ?? 4000;
-  app.listen(port, () => {
+  server.listen(port, () => {
     logger.info({
       msg:               'gateway-graphql listening',
       port,
@@ -240,6 +425,7 @@ async function main() {
       depth_limit:       5,
       complexity_limit:  100,
       persisted_queries: IS_PROD ? 'enforced' : 'open (dev)',
+      ws:                `ws://localhost:${port}/graphql`,
     });
   });
 }
@@ -248,3 +434,6 @@ main().catch((err) => {
   logger.error({ msg: 'startup failed', err: err.message });
   process.exit(1);
 });
+
+// ── Export for testing ────────────────────────────────────────────────────────
+module.exports = { makeAlertLoader, mapRow };

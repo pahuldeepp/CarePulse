@@ -99,7 +99,7 @@ func handleMessage(ctx context.Context, pool *pgxpool.Pool, msg kafka.Message) e
 	if err != nil {
 		return fmt.Errorf("begin tx: %w", err)
 	}
-	defer tx.Rollback(ctx)
+	defer tx.Rollback(ctx) //nolint:errcheck
 
 	// ── 1. Ward Occupancy Projection ─────────────────────────────────────────
 	// Tracks per-ward patient counts and critical escalation counts.

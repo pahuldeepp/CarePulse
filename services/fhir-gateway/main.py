@@ -20,6 +20,7 @@ from pydantic import BaseModel
 
 PATIENT_SERVICE_URL = os.environ.get("PATIENT_SERVICE_URL", "http://localhost:3001")
 TELEMETRY_SERVICE_URL = os.environ.get("TELEMETRY_SERVICE_URL", "http://localhost:8080")
+RISK_ENGINE_URL = os.environ.get("RISK_ENGINE_URL", "http://localhost:8001")
 
 # ── S3: FHIR bundle store ─────────────────────────────────────────────────────
 # Bundles land at {tenant_id}/{bundle_id}.json — tenant-scoped key prevents
@@ -174,9 +175,34 @@ async def search_patients(
 
 
 @app.get("/fhir/R4/Observation/{obs_id}", response_model=FHIRObservation)
-async def get_observation(obs_id: str):
-    log.info("fhir_observation_read", obs_id=obs_id)
-    raise HTTPException(status_code=501, detail="wired in S4")
+async def get_observation(
+    obs_id: str,
+    x_tenant_id: str = Header(..., alias="X-Tenant-ID"),
+):
+    """FHIR R4 Observation read — maps a risk score record to an Observation resource."""
+    try:
+        resp = await http_client.get(
+            f"{PATIENT_SERVICE_URL}/v1/observations/{obs_id}",
+            headers={"X-Tenant-ID": x_tenant_id},
+        )
+    except httpx.ConnectError as exc:
+        log.error("patient_service_unreachable", error=str(exc))
+        raise HTTPException(status_code=502, detail="patient-service unavailable")
+
+    if resp.status_code == 404:
+        raise HTTPException(status_code=404, detail="observation not found")
+    if resp.status_code != 200:
+        raise HTTPException(status_code=502, detail="upstream error")
+
+    o = resp.json()
+    return FHIRObservation(
+        id=obs_id,
+        status="final",
+        subject={"reference": f"Patient/{o.get('patient_id', '')}"},
+        effectiveDateTime=o.get("scored_at", ""),
+        code={"coding": [{"system": "http://loinc.org", "code": "35088-4", "display": "NEWS2"}]},
+        valueQuantity={"value": o.get("news2"), "unit": "score", "system": "http://unitsofmeasure.org"},
+    )
 
 
 # ── CDS Hooks (S12) ───────────────────────────────────────────────────────────
@@ -198,14 +224,60 @@ async def cds_discovery():
 
 
 @app.post("/cds-services/carepack-risk-alert")
-async def cds_risk_alert(body: dict):
+async def cds_risk_alert(body: dict, x_tenant_id: str | None = Header(default=None, alias="X-Tenant-ID")):
     """
     CDS Hook: called by EHR when clinician opens a patient chart.
-    S12: calls risk-engine and returns cards if score is high.
+    Calls risk-engine synchronously and surfaces NEWS2/qSOFA cards.
     """
     log.info("cds_hook_called", hook="patient-view")
-    # S12: call risk-engine, return FHIR cards if NEWS2 >= 5
-    return {"cards": []}
+
+    context = body.get("context", {})
+    telemetry = context.get("telemetry", {})
+
+    if not telemetry:
+        return {"cards": []}
+
+    try:
+        resp = await http_client.post(
+            f"{RISK_ENGINE_URL}/v1/score",
+            json=telemetry,
+            timeout=5.0,
+        )
+    except httpx.ConnectError as exc:
+        log.error("risk_engine_unreachable", error=str(exc))
+        return {"cards": []}
+
+    if resp.status_code != 200:
+        log.error("risk_engine_error", status=resp.status_code)
+        return {"cards": []}
+
+    score = resp.json()
+    level = score.get("risk_level", "low")
+    news2 = score.get("news2", 0)
+    qsofa = score.get("qsofa", 0)
+
+    log.info("cds_hook_scored", level=level, news2=news2, qsofa=qsofa)
+
+    cards = []
+    if level in ("high", "critical"):
+        cards.append(
+            {
+                "summary": f"⚠️ Patient risk: {level.upper()} — NEWS2={news2}, qSOFA={qsofa}",
+                "detail": (
+                    "NEWS2 ≥ 7 or qSOFA ≥ 2 indicates high risk of deterioration. Consider urgent clinical review."
+                )
+                if level == "critical"
+                else ("NEWS2 ≥ 5 indicates elevated risk. Monitor closely."),
+                "indicator": "critical" if level == "critical" else "warning",
+                "source": {"label": "CarePulse Risk Engine", "url": "https://carepack.io"},
+                "suggestions": [
+                    {"label": "Review full vitals", "actions": []},
+                    {"label": "Notify senior clinician", "actions": []},
+                ],
+            }
+        )
+
+    return {"cards": cards}
 
 
 # ── FHIR Bundle endpoints ─────────────────────────────────────────────────────

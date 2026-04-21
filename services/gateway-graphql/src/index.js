@@ -110,6 +110,10 @@ const typeDefs = `#graphql
 
     # Paginated patient list — cursor is patient ID, ordered by updated_at DESC
     patients(first: Int, after: String): [PatientSummary!]!
+
+    # Full-text patient search — proxies to search-indexer (OpenSearch)
+    # Supports fuzzy name matching and exact MRN lookup
+    searchPatients(query: String!, first: Int): [PatientSummary!]!
   }
 
   type Subscription {
@@ -183,6 +187,37 @@ const resolvers = {
         [ctx.user.tenantId, after ?? null, first],
       );
       return rows.map(mapRow);
+    },
+
+    searchPatients: async (_parent, { query, first = 20 }, ctx) => {
+      const searchUrl = process.env.SEARCH_INDEXER_URL ?? 'http://localhost:8087';
+      try {
+        // eslint-disable-next-line no-undef
+        const resp = await fetch(`${searchUrl}/search`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query, tenantId: ctx.user?.tenantId, size: first }),
+        });
+        if (!resp.ok) {
+          logger.warn({ msg: 'search_indexer_error', status: resp.status });
+          return [];
+        }
+        const { hits } = await resp.json();
+        return hits.map((h) => ({
+          id:         h.id,
+          tenantId:   h.tenant_id,
+          mrn:        h.mrn,
+          fullName:   h.full_name,
+          ward:       h.ward,
+          status:     h.status,
+          news2Score: h.news2,
+          updatedAt:  h.updated_at,
+          alerts:     [],
+        }));
+      } catch (err) {
+        logger.error({ msg: 'search_indexer_unreachable', error: err.message });
+        return [];
+      }
     },
   },
 

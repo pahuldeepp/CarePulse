@@ -9,11 +9,11 @@ const logger = createLogger({
 });
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { logger: false });
+  const app = await NestFactory.create(AppModule, {
+    logger: false,
+    rawBody: true,
+  });
   app.setGlobalPrefix('v1');
-
-  // S11: Stripe subscriptions + usage metering goes here
-  // S11: failed payment webhook handler goes here
 
   const port = Number(process.env.PORT ?? 3002);
   await app.listen(port);

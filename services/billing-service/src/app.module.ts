@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
+import { BillingModule } from './billing/billing.module';
 
 @Module({
-  imports: [],
-  // S11: BillingModule + StripeModule goes here
+  imports: [BillingModule],
 })
 export class AppModule {}

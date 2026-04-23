@@ -81,6 +81,10 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="fhir-gateway", version="0.1.0", lifespan=lifespan)
 instrument_fastapi(app)
 
+from audit_middleware import AuditMiddleware  # noqa: E402
+
+app.add_middleware(AuditMiddleware)
+
 
 @app.get("/healthz")
 async def health():

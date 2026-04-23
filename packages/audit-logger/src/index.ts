@@ -8,17 +8,41 @@ const log = createLogger({
 
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
+/**
+ * Represents a single audit event capturing who did what, to which resource,
+ * and under which tenant context.
+ *
+ * All fields map 1-to-1 to columns in the `audit_log` table.
+ */
 export interface AuditEntry {
-  tenantId:   string;
-  userId:     string;
-  userRole?:  string;
-  action:     string;
-  resource:   string;
-  payload?:   unknown;
+  /** Tenant that owns the resource being mutated. */
+  tenantId: string;
+  /** Authenticated user performing the action. */
+  userId: string;
+  /** Role of the user (e.g. clinician, admin). Optional. */
+  userRole?: string;
+  /** Verb + resource type (e.g. CREATE_PATIENT, DELETE_ALERT). */
+  action: string;
+  /** HTTP path or resource identifier (e.g. /v1/patients/p-123). */
+  resource: string;
+  /** Request body for mutating operations. Omitted on DELETE. */
+  payload?: unknown;
+  /** Client IP address. */
   ipAddress?: string;
-  traceId?:   string;
+  /** Distributed trace ID for correlating logs across services. */
+  traceId?: string;
 }
 
+/**
+ * Persists an audit entry to the `audit_log` Postgres table.
+ *
+ * This function is intentionally non-fatal: a DB failure is logged with
+ * structured context but never re-thrown. Audit writes must never interrupt
+ * the clinical workflow — if the audit table is unavailable, the originating
+ * request still succeeds.
+ *
+ * @param entry - The audit event to record.
+ */
 export async function writeAuditLog(entry: AuditEntry): Promise<void> {
   try {
     await pool.query(
@@ -37,12 +61,13 @@ export async function writeAuditLog(entry: AuditEntry): Promise<void> {
       ],
     );
   } catch (err: unknown) {
-    // Non-fatal — audit failure must never break the clinical workflow
-    log.error({
-      msg:    'audit_log_write_failed',
-      error:  (err as Error).message,
-      action: entry.action,
-      tenant: entry.tenantId,
-    });
+    if (err instanceof Error) {
+      log.error({
+        msg:    'audit_log_write_failed',
+        error:  err.message,
+        action: entry.action,
+        tenant: entry.tenantId,
+      });
+    }
   }
 }

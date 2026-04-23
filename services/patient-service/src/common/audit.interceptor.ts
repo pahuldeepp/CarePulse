@@ -50,12 +50,14 @@ async function writeAuditLog(entry: {
       ],
     );
   } catch (err: unknown) {
-    log.error({
-      msg:    'audit_log_write_failed',
-      error:  (err as Error).message,
-      action: entry.action,
-      tenant: entry.tenantId,
-    });
+    if (err instanceof Error) {
+      log.error({
+        msg:    'audit_log_write_failed',
+        error:  err.message,
+        action: entry.action,
+        tenant: entry.tenantId,
+      });
+    }
   }
 }
 

@@ -68,5 +68,7 @@ async def _write_audit(
             resource,
             trace_id,
         )
-    except Exception as exc:
+    except (asyncpg.PostgresError, OSError) as exc:
         log.error("audit_log_write_failed", error=str(exc), action=action, tenant=tenant_id)
+    except asyncpg.InterfaceError as exc:
+        log.error("audit_log_pool_error", error=str(exc), action=action, tenant=tenant_id)

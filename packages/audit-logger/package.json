@@ -25,6 +25,7 @@
     "preset": "ts-jest",
     "testEnvironment": "node",
     "testMatch": ["**/*.test.ts"],
+    "testEnvironmentOptions": {},
     "globals": {
       "ts-jest": {
         "tsconfig": {
@@ -33,6 +34,7 @@
           "types": ["node", "jest"]
         }
       }
-    }
+    },
+    "setupFiles": ["<rootDir>/src/test-setup.js"]
   }
 }

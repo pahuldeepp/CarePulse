@@ -14,7 +14,12 @@ const log = createLogger({
   transports: [new transports.Console()],
 });
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  throw new Error('DATABASE_URL is required for audit logging');
+}
+
+const pool = new Pool({ connectionString: DATABASE_URL });
 
 const METHOD_ACTION: Record<string, string> = {
   POST:   'CREATE',
@@ -26,8 +31,9 @@ const METHOD_ACTION: Record<string, string> = {
 /**
  * Persists a single audit row to `audit_log`.
  *
- * Non-fatal by design — a DB failure is logged but never re-thrown so the
- * originating HTTP response is unaffected.
+ * Sets `app.current_tenant_id` within a transaction so the RLS `WITH CHECK`
+ * policy on `audit_log` is satisfied. Non-fatal: a DB failure is logged but
+ * never re-thrown so the originating HTTP response is unaffected.
  *
  * @param entry - Fields to record in the audit row.
  */
@@ -37,12 +43,17 @@ async function writeAuditLog(entry: {
   userRole?:  string;
   action:     string;
   resource:   string;
-  payload?:   unknown;
+  resourceId?: string;
   ipAddress?: string;
   traceId?:   string;
 }): Promise<void> {
+  const client = await pool.connect().catch(() => null);
+  if (!client) return;
+
   try {
-    await pool.query(
+    await client.query('BEGIN');
+    await client.query(`SET LOCAL "app.current_tenant_id" = $1`, [entry.tenantId]);
+    await client.query(
       `INSERT INTO audit_log
          (tenant_id, user_id, user_role, action, resource, payload, ip_address, trace_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
@@ -52,20 +63,22 @@ async function writeAuditLog(entry: {
         entry.userRole  ?? null,
         entry.action,
         entry.resource,
-        entry.payload   ? JSON.stringify(entry.payload) : null,
+        entry.resourceId ? JSON.stringify({ resourceId: entry.resourceId }) : null,
         entry.ipAddress ?? null,
         entry.traceId   ?? null,
       ],
     );
+    await client.query('COMMIT');
   } catch (err: unknown) {
-    if (err instanceof Error) {
-      log.error({
-        msg:    'audit_log_write_failed',
-        error:  err.message,
-        action: entry.action,
-        tenant: entry.tenantId,
-      });
-    }
+    await client.query('ROLLBACK').catch(() => undefined);
+    log.error({
+      msg:    'audit_log_write_failed',
+      error:  err instanceof Error ? err.message : String(err),
+      action: entry.action,
+      tenant: entry.tenantId,
+    });
+  } finally {
+    client.release();
   }
 }
 
@@ -99,6 +112,7 @@ export class AuditInterceptor implements NestInterceptor {
     const userId     = (req as unknown as { user?: { id?: string }   }).user?.id   ?? 'anonymous';
     const userRole   = (req as unknown as { user?: { role?: string } }).user?.role;
     const resource   = req.path;
+    const resourceId = (req.params as Record<string, string> | undefined)?.id;
     const ipAddress  = req.ip;
     const traceId    = req.headers['x-trace-id'] as string | undefined;
     const controller = ctx.getClass().name.replace('Controller', '').toUpperCase();
@@ -112,7 +126,7 @@ export class AuditInterceptor implements NestInterceptor {
           userRole,
           action,
           resource,
-          payload:   method !== 'DELETE' ? req.body : undefined,
+          resourceId,
           ipAddress,
           traceId,
         });

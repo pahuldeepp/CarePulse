@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { Pool, PoolClient } from 'pg';
 import { createLogger, format, transports } from 'winston';
 
 const log = createLogger({
@@ -6,7 +6,12 @@ const log = createLogger({
   transports: [new transports.Console()],
 });
 
-const pool = new Pool({ connectionString: process.env.DATABASE_URL });
+const DATABASE_URL = process.env.DATABASE_URL;
+if (!DATABASE_URL) {
+  throw new Error('DATABASE_URL is required for audit logging');
+}
+
+const pool = new Pool({ connectionString: DATABASE_URL });
 
 /**
  * Represents a single audit event capturing who did what, to which resource,
@@ -25,8 +30,8 @@ export interface AuditEntry {
   action: string;
   /** HTTP path or resource identifier (e.g. /v1/patients/p-123). */
   resource: string;
-  /** Request body for mutating operations. Omitted on DELETE. */
-  payload?: unknown;
+  /** Minimal resource metadata — never the full request body to avoid storing PHI. */
+  resourceId?: string;
   /** Client IP address. */
   ipAddress?: string;
   /** Distributed trace ID for correlating logs across services. */
@@ -36,16 +41,21 @@ export interface AuditEntry {
 /**
  * Persists an audit entry to the `audit_log` Postgres table.
  *
- * This function is intentionally non-fatal: a DB failure is logged with
- * structured context but never re-thrown. Audit writes must never interrupt
- * the clinical workflow — if the audit table is unavailable, the originating
- * request still succeeds.
+ * Sets `app.current_tenant_id` within a transaction so the RLS policy on
+ * `audit_log` is satisfied even when the app role owns the table.
+ *
+ * Non-fatal by design: a DB failure is logged with structured context but
+ * never re-thrown so the originating clinical request still succeeds.
  *
  * @param entry - The audit event to record.
  */
 export async function writeAuditLog(entry: AuditEntry): Promise<void> {
+  let client: PoolClient | null = null;
   try {
-    await pool.query(
+    client = await pool.connect();
+    await client.query('BEGIN');
+    await client.query(`SET LOCAL "app.current_tenant_id" = $1`, [entry.tenantId]);
+    await client.query(
       `INSERT INTO audit_log
          (tenant_id, user_id, user_role, action, resource, payload, ip_address, trace_id)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
@@ -55,19 +65,23 @@ export async function writeAuditLog(entry: AuditEntry): Promise<void> {
         entry.userRole  ?? null,
         entry.action,
         entry.resource,
-        entry.payload   ? JSON.stringify(entry.payload) : null,
+        entry.resourceId ? JSON.stringify({ resourceId: entry.resourceId }) : null,
         entry.ipAddress ?? null,
         entry.traceId   ?? null,
       ],
     );
+    await client.query('COMMIT');
   } catch (err: unknown) {
-    if (err instanceof Error) {
-      log.error({
-        msg:    'audit_log_write_failed',
-        error:  err.message,
-        action: entry.action,
-        tenant: entry.tenantId,
-      });
+    if (client) {
+      await client.query('ROLLBACK').catch(() => undefined);
     }
+    log.error({
+      msg:    'audit_log_write_failed',
+      error:  err instanceof Error ? err.message : String(err),
+      action: entry.action,
+      tenant: entry.tenantId,
+    });
+  } finally {
+    client?.release();
   }
 }

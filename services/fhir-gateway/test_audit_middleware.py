@@ -61,26 +61,44 @@ def test_delete_triggers_audit_task(mock_task, client):
 
 @pytest.mark.asyncio
 async def test_write_audit_executes_insert():
+    mock_conn = AsyncMock()
+    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_conn.__aexit__ = AsyncMock(return_value=False)
+    mock_conn.execute = AsyncMock(return_value=None)
+    mock_conn.transaction = MagicMock(return_value=mock_conn)
+
     mock_pool = MagicMock()
-    mock_pool.execute = AsyncMock(return_value=None)
+    mock_pool.acquire = AsyncMock(return_value=mock_conn)
+    mock_pool.release = AsyncMock()
 
     with patch("audit_middleware._get_pool", new_callable=AsyncMock, return_value=mock_pool):
         await _write_audit("t-1", "u-1", "POST_FHIR_R4_BUNDLE", "/fhir/R4/Bundle", "trace-1")
 
-    mock_pool.execute.assert_awaited_once()
-    sql, *args = mock_pool.execute.call_args[0]
-    assert "INSERT INTO audit_log" in sql
-    assert "t-1" in args
-    assert "u-1" in args
-    assert "trace-1" in args
+    assert mock_conn.execute.await_count >= 2
+    insert_call = next(
+        (c for c in mock_conn.execute.call_args_list if "INSERT INTO audit_log" in str(c)),
+        None,
+    )
+    assert insert_call is not None, "INSERT INTO audit_log was not called"
+    insert_args = insert_call[0]
+    assert "t-1" in insert_args
+    assert "u-1" in insert_args
+    assert "trace-1" in insert_args
 
 
 @pytest.mark.asyncio
 async def test_write_audit_swallows_postgres_error():
     import asyncpg
 
+    mock_conn = AsyncMock()
+    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_conn.__aexit__ = AsyncMock(return_value=False)
+    mock_conn.execute = AsyncMock(side_effect=asyncpg.PostgresError("connection refused"))
+    mock_conn.transaction = MagicMock(return_value=mock_conn)
+
     mock_pool = MagicMock()
-    mock_pool.execute = AsyncMock(side_effect=asyncpg.PostgresError("connection refused"))
+    mock_pool.acquire = AsyncMock(return_value=mock_conn)
+    mock_pool.release = AsyncMock()
 
     with patch("audit_middleware._get_pool", new_callable=AsyncMock, return_value=mock_pool):
         await _write_audit("t-1", "u-1", "POST_BUNDLE", "/fhir/R4/Bundle", None)
@@ -88,8 +106,15 @@ async def test_write_audit_swallows_postgres_error():
 
 @pytest.mark.asyncio
 async def test_write_audit_swallows_os_error():
+    mock_conn = AsyncMock()
+    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_conn.__aexit__ = AsyncMock(return_value=False)
+    mock_conn.execute = AsyncMock(side_effect=OSError("network unreachable"))
+    mock_conn.transaction = MagicMock(return_value=mock_conn)
+
     mock_pool = MagicMock()
-    mock_pool.execute = AsyncMock(side_effect=OSError("network unreachable"))
+    mock_pool.acquire = AsyncMock(return_value=mock_conn)
+    mock_pool.release = AsyncMock()
 
     with patch("audit_middleware._get_pool", new_callable=AsyncMock, return_value=mock_pool):
         await _write_audit("t-1", "u-1", "POST_BUNDLE", "/fhir/R4/Bundle", None)
@@ -97,11 +122,23 @@ async def test_write_audit_swallows_os_error():
 
 @pytest.mark.asyncio
 async def test_write_audit_handles_none_trace_id():
+    mock_conn = AsyncMock()
+    mock_conn.__aenter__ = AsyncMock(return_value=mock_conn)
+    mock_conn.__aexit__ = AsyncMock(return_value=False)
+    mock_conn.execute = AsyncMock(return_value=None)
+    mock_conn.transaction = MagicMock(return_value=mock_conn)
+
     mock_pool = MagicMock()
-    mock_pool.execute = AsyncMock(return_value=None)
+    mock_pool.acquire = AsyncMock(return_value=mock_conn)
+    mock_pool.release = AsyncMock()
 
     with patch("audit_middleware._get_pool", new_callable=AsyncMock, return_value=mock_pool):
         await _write_audit("t-1", "u-1", "DELETE_BUNDLE", "/fhir/R4/Bundle/b-1", None)
 
-    _, *args = mock_pool.execute.call_args[0]
-    assert None in args
+    insert_call = next(
+        (c for c in mock_conn.execute.call_args_list if "INSERT INTO audit_log" in str(c)),
+        None,
+    )
+    assert insert_call is not None
+    insert_args = insert_call[0]
+    assert None in insert_args

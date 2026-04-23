@@ -16,7 +16,9 @@ from starlette.responses import Response
 
 log = structlog.get_logger()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is required for audit logging")
 
 _pool: asyncpg.Pool | None = None
 
@@ -84,10 +86,12 @@ async def _write_audit(
 ) -> None:
     """Insert one row into ``audit_log`` using the shared asyncpg pool.
 
-    Non-fatal: ``asyncpg.PostgresError``, ``asyncpg.InterfaceError``, and
-    ``OSError`` are caught and logged. Any other unexpected exception is allowed
-    to propagate so it surfaces in the task exception handler rather than being
-    silently swallowed.
+    Runs the INSERT inside a transaction with ``SET LOCAL`` so the RLS policy
+    on ``audit_log`` (keyed on ``app.current_tenant_id``) is satisfied.
+
+    Non-fatal: both ``asyncpg.PostgresError`` (server-side) and
+    ``asyncpg.InterfaceError`` (client-side, e.g. connection reset) are caught
+    and logged. ``OSError`` covers TCP-level failures before the pool connects.
 
     Args:
         tenant_id: Tenant that owns the resource.
@@ -96,19 +100,24 @@ async def _write_audit(
         resource:  Request path (e.g. /fhir/R4/Bundle).
         trace_id:  Optional distributed trace ID.
     """
+    conn = None
     try:
         pool = await _get_pool()
-        await pool.execute(
-            """INSERT INTO audit_log
-                 (tenant_id, user_id, action, resource, trace_id)
-               VALUES ($1, $2, $3, $4, $5)""",
-            tenant_id,
-            user_id,
-            action,
-            resource,
-            trace_id,
-        )
-    except (asyncpg.PostgresError, OSError) as exc:
+        conn = await pool.acquire()
+        async with conn.transaction():
+            await conn.execute("SELECT set_config('app.current_tenant_id', $1, true)", tenant_id)
+            await conn.execute(
+                """INSERT INTO audit_log
+                     (tenant_id, user_id, action, resource, trace_id)
+                   VALUES ($1, $2, $3, $4, $5)""",
+                tenant_id,
+                user_id,
+                action,
+                resource,
+                trace_id,
+            )
+    except (asyncpg.PostgresError, asyncpg.InterfaceError, OSError) as exc:
         log.error("audit_log_write_failed", error=str(exc), action=action, tenant=tenant_id)
-    except asyncpg.InterfaceError as exc:
-        log.error("audit_log_pool_error", error=str(exc), action=action, tenant=tenant_id)
+    finally:
+        if conn is not None:
+            await pool.release(conn)

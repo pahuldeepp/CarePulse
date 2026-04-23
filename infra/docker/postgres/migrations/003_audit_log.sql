@@ -6,8 +6,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
   tenant_id   TEXT        NOT NULL,
   user_id     TEXT        NOT NULL,
   user_role   TEXT,
-  action      TEXT        NOT NULL,   -- e.g. CREATE_PATIENT, UPDATE_ALERT
-  resource    TEXT        NOT NULL,   -- e.g. Patient/p-123
+  action      TEXT        NOT NULL,
+  resource    TEXT        NOT NULL,
   payload     JSONB,
   ip_address  TEXT,
   trace_id    TEXT,
@@ -20,6 +20,11 @@ CREATE INDEX IF NOT EXISTS audit_log_resource_idx ON audit_log (resource,   crea
 
 ALTER TABLE audit_log ENABLE ROW LEVEL SECURITY;
 
+-- FORCE applies the policy even to the table owner, preventing bypass by
+-- the migration role (superusers still bypass — use a non-superuser app role).
+ALTER TABLE audit_log FORCE ROW LEVEL SECURITY;
+
 DROP POLICY IF EXISTS tenant_isolation ON audit_log;
 CREATE POLICY tenant_isolation ON audit_log
-  USING (tenant_id = current_setting('app.current_tenant_id', true));
+  USING     (tenant_id = current_setting('app.current_tenant_id', true))
+  WITH CHECK (tenant_id = current_setting('app.current_tenant_id', true));

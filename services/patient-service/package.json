@@ -35,6 +35,7 @@
     "preset": "ts-jest",
     "testEnvironment": "node",
     "testMatch": ["**/*.spec.ts"],
-    "testTimeout": 10000
+    "testTimeout": 10000,
+    "setupFiles": ["<rootDir>/src/test-setup.js"]
   }
 }

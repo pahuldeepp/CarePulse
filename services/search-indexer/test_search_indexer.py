@@ -1,188 +1,197 @@
-"""Tests for search-indexer: BulkIndexer, event handlers, search endpoint."""
+"""Tests for search-indexer event routing and BulkIndexer."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+from main import BulkIndexer, route_event
+
+# ── route_event ───────────────────────────────────────────────────────────────
+
+
+def test_patient_created_routes_to_patients_index():
+    result = route_event(
+        "domain.patient.created",
+        {
+            "patientId": "p-1",
+            "tenantId": "t-1",
+            "mrn": "MRN001",
+            "firstName": "Jane",
+            "lastName": "Doe",
+            "ward": "ICU",
+        },
+    )
+    assert result is not None
+    index, doc_id, doc = result
+    assert index == "carepack-patients"
+    assert doc_id == "p-1"
+    assert doc["name"] == "Jane Doe"
+    assert doc["mrn"] == "MRN001"
+    assert doc["ward"] == "ICU"
+
+
+def test_patient_updated_routes_to_patients_index():
+    result = route_event(
+        "domain.patient.updated",
+        {
+            "patientId": "p-2",
+            "tenantId": "t-1",
+            "mrn": "MRN002",
+            "firstName": "John",
+            "lastName": "Smith",
+        },
+    )
+    assert result is not None
+    assert result[0] == "carepack-patients"
+    assert result[1] == "p-2"
+
+
+def test_risk_scored_critical_routes_to_alerts_index():
+    result = route_event(
+        "domain.risk.scored",
+        {
+            "device_id": "d-1",
+            "tenant_id": "t-1",
+            "risk_level": "critical",
+            "emit_alert": True,
+            "news2": 8,
+            "qsofa": 2,
+            "scored_at": "2026-04-23T00:00:00Z",
+        },
+    )
+    assert result is not None
+    index, _, doc = result
+    assert index == "carepack-alerts"
+    assert doc["severity"] == "critical"
+    assert doc["news2"] == 8
+
+
+def test_risk_scored_high_routes_to_alerts_index():
+    result = route_event(
+        "domain.risk.scored",
+        {
+            "device_id": "d-2",
+            "tenant_id": "t-1",
+            "risk_level": "high",
+            "emit_alert": True,
+            "news2": 6,
+            "qsofa": 1,
+            "scored_at": "2026-04-23T00:00:00Z",
+        },
+    )
+    assert result is not None
+    assert result[0] == "carepack-alerts"
+
+
+def test_risk_scored_low_returns_none():
+    result = route_event(
+        "domain.risk.scored",
+        {
+            "device_id": "d-1",
+            "tenant_id": "t-1",
+            "risk_level": "low",
+            "emit_alert": True,
+            "news2": 0,
+            "qsofa": 0,
+        },
+    )
+    assert result is None
+
+
+def test_risk_scored_medium_returns_none():
+    result = route_event(
+        "domain.risk.scored",
+        {
+            "device_id": "d-1",
+            "tenant_id": "t-1",
+            "risk_level": "medium",
+            "emit_alert": True,
+            "news2": 3,
+            "qsofa": 0,
+        },
+    )
+    assert result is None
+
+
+def test_risk_scored_emit_alert_false_returns_none():
+    result = route_event(
+        "domain.risk.scored",
+        {
+            "device_id": "d-1",
+            "tenant_id": "t-1",
+            "risk_level": "critical",
+            "emit_alert": False,
+            "news2": 9,
+            "qsofa": 3,
+        },
+    )
+    assert result is None
+
+
+def test_patient_created_missing_id_returns_none():
+    result = route_event("domain.patient.created", {"tenantId": "t-1"})
+    assert result is None
+
+
+def test_unknown_topic_returns_none():
+    result = route_event("domain.billing.invoice", {"id": "inv-1"})
+    assert result is None
+
 
 # ── BulkIndexer ───────────────────────────────────────────────────────────────
 
 
 @pytest.mark.asyncio
-async def test_bulk_indexer_buffers_index_action():
-    from main import BulkIndexer
-
-    mock_client = AsyncMock()
+async def test_bulk_indexer_flushes_on_batch_size():
+    mock_client = MagicMock()
     indexer = BulkIndexer(mock_client)
 
-    await indexer.add_index("p-1", {"full_name": "Jane Doe", "tenant_id": "t-1"})
-    assert len(indexer._buffer) == 1
-    assert indexer._buffer[0]["_id"] == "p-1"
-    assert indexer._buffer[0]["_op_type"] == "index"
-
-
-@pytest.mark.asyncio
-async def test_bulk_indexer_buffers_update_action():
-    from main import BulkIndexer
-
-    mock_client = AsyncMock()
-    indexer = BulkIndexer(mock_client)
-
-    await indexer.add_update("p-1", {"news2": 7, "risk_level": "critical"})
-    assert indexer._buffer[0]["_op_type"] == "update"
-    assert indexer._buffer[0]["doc"]["news2"] == 7
-
-
-@pytest.mark.asyncio
-async def test_bulk_indexer_flush_calls_opensearch():
-    from main import BulkIndexer
-
-    mock_client = AsyncMock()
-
-    with patch("main.async_bulk", new_callable=AsyncMock) as mock_bulk:
-        mock_bulk.return_value = (1, [])
-        indexer = BulkIndexer(mock_client)
-        await indexer.add_index("p-1", {"full_name": "Jane", "tenant_id": "t-1"})
-        await indexer._flush()
+    with patch("main.helpers.async_bulk", new_callable=AsyncMock, return_value=(200, [])) as mock_bulk:
+        for i in range(200):
+            await indexer.add("carepack-patients", f"p-{i}", {"name": f"Patient {i}"})
         mock_bulk.assert_awaited_once()
-        assert indexer._buffer == []
 
 
 @pytest.mark.asyncio
-async def test_bulk_indexer_flush_empty_noop():
-    from main import BulkIndexer
+async def test_bulk_indexer_flush_sends_correct_docs():
+    mock_client = MagicMock()
+    indexer = BulkIndexer(mock_client)
+    await indexer.add("carepack-patients", "p-1", {"name": "Jane Doe"})
 
-    mock_client = AsyncMock()
-    with patch("main.async_bulk", new_callable=AsyncMock) as mock_bulk:
-        indexer = BulkIndexer(mock_client)
-        await indexer._flush()
+    with patch("main.helpers.async_bulk", new_callable=AsyncMock, return_value=(1, [])) as mock_bulk:
+        await indexer.flush()
+        mock_bulk.assert_awaited_once()
+        _, batch = mock_bulk.call_args[0]
+        assert batch[0]["_id"] == "p-1"
+        assert batch[0]["_index"] == "carepack-patients"
+        assert batch[0]["name"] == "Jane Doe"
+
+
+@pytest.mark.asyncio
+async def test_bulk_indexer_swallows_opensearch_error():
+    mock_client = MagicMock()
+    indexer = BulkIndexer(mock_client)
+    await indexer.add("carepack-patients", "p-1", {"name": "Jane"})
+
+    with patch("main.helpers.async_bulk", new_callable=AsyncMock, side_effect=Exception("connection refused")):
+        await indexer.flush()
+
+
+@pytest.mark.asyncio
+async def test_empty_flush_is_noop():
+    mock_client = MagicMock()
+    indexer = BulkIndexer(mock_client)
+
+    with patch("main.helpers.async_bulk", new_callable=AsyncMock) as mock_bulk:
+        await indexer.flush()
         mock_bulk.assert_not_awaited()
 
 
-# ── Event handlers ────────────────────────────────────────────────────────────
-
-
 @pytest.mark.asyncio
-async def test_handle_patient_created_indexes_doc():
-    from main import BulkIndexer, handle_patient_created
-
-    mock_client = AsyncMock()
+async def test_buffer_cleared_after_flush():
+    mock_client = MagicMock()
     indexer = BulkIndexer(mock_client)
+    await indexer.add("carepack-patients", "p-1", {"name": "Jane"})
 
-    payload = {
-        "patientId": "p-1",
-        "tenantId": "t-1",
-        "mrn": "MRN001",
-        "firstName": "Jane",
-        "lastName": "Doe",
-        "ward": "ICU",
-    }
-    await handle_patient_created(indexer, payload)
-    assert len(indexer._buffer) == 1
-    assert indexer._buffer[0]["full_name"] == "Jane Doe"
-    assert indexer._buffer[0]["mrn"] == "MRN001"
-
-
-@pytest.mark.asyncio
-async def test_handle_patient_created_missing_id_skips():
-    from main import BulkIndexer, handle_patient_created
-
-    mock_client = AsyncMock()
-    indexer = BulkIndexer(mock_client)
-    await handle_patient_created(indexer, {"tenantId": "t-1"})
-    assert indexer._buffer == []
-
-
-@pytest.mark.asyncio
-async def test_handle_risk_scored_updates_doc():
-    from main import BulkIndexer, handle_risk_scored
-
-    mock_client = AsyncMock()
-    indexer = BulkIndexer(mock_client)
-
-    payload = {
-        "patient_id": "p-1",
-        "tenant_id": "t-1",
-        "news2": 7.0,
-        "risk_level": "critical",
-        "scored_at": "2026-04-21T10:00:00Z",
-    }
-    await handle_risk_scored(indexer, payload)
-    assert indexer._buffer[0]["_op_type"] == "update"
-    assert indexer._buffer[0]["doc"]["news2"] == 7
-    assert indexer._buffer[0]["doc"]["risk_level"] == "critical"
-
-
-@pytest.mark.asyncio
-async def test_handle_risk_scored_missing_patient_id_skips():
-    from main import BulkIndexer, handle_risk_scored
-
-    mock_client = AsyncMock()
-    indexer = BulkIndexer(mock_client)
-    await handle_risk_scored(indexer, {"news2": 5, "risk_level": "high"})
-    assert indexer._buffer == []
-
-
-# ── Search endpoint ───────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_search_endpoint_returns_hits():
-    import main as m
-    from aiohttp.test_utils import TestClient, TestServer
-
-    mock_os = AsyncMock()
-    mock_os.search = AsyncMock(
-        return_value={
-            "hits": {
-                "total": {"value": 1},
-                "hits": [
-                    {
-                        "_id": "p-1",
-                        "_source": {
-                            "full_name": "Jane Doe",
-                            "mrn": "MRN001",
-                            "ward": "ICU",
-                            "status": "active",
-                            "news2": 7,
-                            "risk_level": "critical",
-                            "updated_at": "2026-04-21T10:00:00Z",
-                        },
-                    }
-                ],
-            }
-        }
-    )
-    m._os_client = mock_os
-
-    http_app = await m.build_http_app()
-    async with TestClient(TestServer(http_app)) as client:
-        resp = await client.post(
-            "/search",
-            json={"query": "Jane", "tenantId": "t-1", "size": 10},
-        )
-        assert resp.status == 200
-        body = await resp.json()
-        assert body["total"] == 1
-        assert body["hits"][0]["id"] == "p-1"
-
-
-@pytest.mark.asyncio
-async def test_search_endpoint_missing_tenant_returns_400():
-    import main as m
-    from aiohttp.test_utils import TestClient, TestServer
-
-    http_app = await m.build_http_app()
-    async with TestClient(TestServer(http_app)) as client:
-        resp = await client.post("/search", json={"query": "Jane"})
-        assert resp.status == 400
-
-
-@pytest.mark.asyncio
-async def test_healthz_returns_ok():
-    import main as m
-    from aiohttp.test_utils import TestClient, TestServer
-
-    http_app = await m.build_http_app()
-    async with TestClient(TestServer(http_app)) as client:
-        resp = await client.get("/healthz")
-        assert resp.status == 200
+    with patch("main.helpers.async_bulk", new_callable=AsyncMock, return_value=(1, [])):
+        await indexer.flush()
+        assert indexer._buffer == []

@@ -1,29 +1,19 @@
 """
-search-indexer — consumes Kafka events and bulk-indexes them into OpenSearch.
+search-indexer — consumes Kafka CDC events and bulk-indexes into OpenSearch.
 
-Topics consumed:
-  domain.patient.created  → carepack-patients index
-  domain.risk.scored      → carepack-patients (risk fields partial update)
-
-Search endpoint:
-  POST /search  { query, tenantId, size } → hits[]
+S6: full indexer wired with patient + alert indices.
+Flow: Postgres → Debezium → Kafka → this service → OpenSearch
 """
 
 import asyncio
 import json
 import os
-import sys
-from typing import Any
 
 import structlog
 from aiohttp import web
 from aiokafka import AIOKafkaConsumer
-from opensearchpy import AsyncOpenSearch
-from opensearchpy.helpers import async_bulk
+from opensearchpy import AsyncOpenSearch, helpers
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "packages", "otel-python"))
-
-# ── Structured logging ────────────────────────────────────────────────────────
 structlog.configure(
     processors=[
         structlog.processors.TimeStamper(fmt="iso"),
@@ -34,26 +24,57 @@ log = structlog.get_logger()
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "localhost:9092")
 OPENSEARCH_URL = os.getenv("OPENSEARCH_URL", "http://localhost:9200")
+CONSUMER_GROUP = os.getenv("CONSUMER_GROUP", "search-indexer")
 BATCH_SIZE = int(os.getenv("BATCH_SIZE", "200"))
 FLUSH_INTERVAL = float(os.getenv("FLUSH_INTERVAL", "1.0"))
-CONSUMER_GROUP = "search-indexer"
-PATIENT_INDEX = "carepack-patients"
 
-# ── Index mapping ─────────────────────────────────────────────────────────────
-PATIENT_MAPPING = {
-    "mappings": {
-        "properties": {
-            "tenant_id": {"type": "keyword"},
-            "mrn": {"type": "keyword"},
-            "full_name": {"type": "text", "fields": {"keyword": {"type": "keyword"}}},
-            "ward": {"type": "keyword"},
-            "status": {"type": "keyword"},
-            "news2": {"type": "integer"},
-            "risk_level": {"type": "keyword"},
-            "updated_at": {"type": "date"},
+TOPICS = [
+    "domain.patient.created",
+    "domain.patient.updated",
+    "domain.risk.scored",
+]
+
+# ── Index definitions ─────────────────────────────────────────────────────────
+
+INDICES = {
+    "carepack-patients": {
+        "mappings": {
+            "properties": {
+                "tenant_id": {"type": "keyword"},
+                "mrn": {"type": "keyword"},
+                "name": {"type": "text"},
+                "ward": {"type": "keyword"},
+                "status": {"type": "keyword"},
+                "updated_at": {"type": "date"},
+            }
         }
-    }
+    },
+    "carepack-alerts": {
+        "mappings": {
+            "properties": {
+                "tenant_id": {"type": "keyword"},
+                "severity": {"type": "keyword"},
+                "status": {"type": "keyword"},
+                "patient_id": {"type": "keyword"},
+                "news2": {"type": "integer"},
+                "qsofa": {"type": "integer"},
+                "created_at": {"type": "date"},
+            }
+        }
+    },
 }
+
+
+# ── OpenSearch setup ──────────────────────────────────────────────────────────
+
+
+async def ensure_indices(client: AsyncOpenSearch) -> None:
+    """Create indices with mappings if they do not already exist."""
+    for name, body in INDICES.items():
+        exists = await client.indices.exists(index=name)
+        if not exists:
+            await client.indices.create(index=name, body=body)
+            log.info("index_created", index=name)
 
 
 # ── Bulk indexer ──────────────────────────────────────────────────────────────
@@ -61,124 +82,131 @@ PATIENT_MAPPING = {
 
 class BulkIndexer:
     """
-    Accumulates index/update actions and flushes to OpenSearch in bulk.
-    Two flush triggers: BATCH_SIZE reached OR FLUSH_INTERVAL elapsed.
+    Accumulates documents and flushes to OpenSearch in bulk.
+    Flushes when buffer reaches BATCH_SIZE or FLUSH_INTERVAL elapses — whichever
+    comes first.  Non-fatal: a failed flush is logged and never re-raised so the
+    Kafka consumer loop keeps running.
     """
 
-    def __init__(self, client: AsyncOpenSearch):
+    def __init__(self, client: AsyncOpenSearch) -> None:
         self._client = client
         self._buffer: list[dict] = []
         self._lock = asyncio.Lock()
 
-    async def add_index(self, doc_id: str, doc: dict):
+    async def add(self, index: str, doc_id: str, doc: dict) -> None:
+        """Buffer one document, flushing immediately if the batch is full."""
         async with self._lock:
-            self._buffer.append(
-                {
-                    "_op_type": "index",
-                    "_index": PATIENT_INDEX,
-                    "_id": doc_id,
-                    **doc,
-                }
-            )
+            self._buffer.append({"_index": index, "_id": doc_id, **doc})
             if len(self._buffer) >= BATCH_SIZE:
                 await self._flush()
 
-    async def add_update(self, doc_id: str, partial: dict):
+    async def flush(self) -> None:
+        """Public flush — acquires the lock then delegates to _flush."""
         async with self._lock:
-            self._buffer.append(
-                {
-                    "_op_type": "update",
-                    "_index": PATIENT_INDEX,
-                    "_id": doc_id,
-                    "doc": partial,
-                    "doc_as_upsert": True,
-                }
-            )
-            if len(self._buffer) >= BATCH_SIZE:
-                await self._flush()
+            await self._flush()
 
-    async def _flush(self):
+    async def _flush(self) -> None:
         if not self._buffer:
             return
         batch = self._buffer.copy()
         self._buffer.clear()
         try:
-            success, errors = await async_bulk(self._client, batch, raise_on_error=False)
+            ok, errors = await helpers.async_bulk(self._client, batch, raise_on_error=False)
             if errors:
-                log.error("bulk_flush_errors", count=len(errors), errors=errors[:3])
+                log.error("bulk_index_errors", count=len(errors), sample=errors[:3])
             else:
-                log.info("bulk_flush_ok", docs=success)
+                log.info("bulk_flushed", docs=ok)
         except Exception as exc:
             log.error("bulk_flush_failed", error=str(exc))
 
-    async def run_flush_loop(self):
+    async def run_flush_loop(self) -> None:
+        """Background task — flushes on a fixed interval even if batch is not full."""
         while True:
             await asyncio.sleep(FLUSH_INTERVAL)
-            async with self._lock:
-                await self._flush()
+            await self.flush()
 
 
-# ── Event handlers ────────────────────────────────────────────────────────────
+# ── Event routing ─────────────────────────────────────────────────────────────
 
 
-async def handle_patient_created(indexer: BulkIndexer, payload: dict):
-    patient_id = payload.get("patientId") or payload.get("patient_id")
-    if not patient_id:
-        log.warn("patient_created_missing_id")
-        return
-    doc = {
-        "tenant_id": payload.get("tenantId") or payload.get("tenant_id", ""),
-        "mrn": payload.get("mrn", ""),
-        "full_name": f"{payload.get('firstName', '')} {payload.get('lastName', '')}".strip(),
-        "ward": payload.get("ward", ""),
-        "status": "active",
-        "updated_at": payload.get("created_at") or payload.get("createdAt"),
-    }
-    await indexer.add_index(patient_id, doc)
-    log.info("patient_indexed", patient_id=patient_id)
+def route_event(topic: str, value: dict) -> tuple[str, str, dict] | None:
+    """
+    Map a Kafka event to (index, doc_id, document).
+    Returns None for events that should not be indexed.
+    """
+    if topic in ("domain.patient.created", "domain.patient.updated"):
+        patient_id = value.get("patientId") or value.get("patient_id")
+        if not patient_id:
+            return None
+        return (
+            "carepack-patients",
+            patient_id,
+            {
+                "tenant_id": value.get("tenantId") or value.get("tenant_id"),
+                "mrn": value.get("mrn"),
+                "name": f"{value.get('firstName', '')} {value.get('lastName', '')}".strip(),
+                "ward": value.get("ward"),
+                "status": "active",
+                "updated_at": value.get("scored_at") or value.get("created_at"),
+            },
+        )
 
+    if topic == "domain.risk.scored":
+        if value.get("risk_level") not in ("high", "critical"):
+            return None
+        if not value.get("emit_alert", True):
+            return None
+        return (
+            "carepack-alerts",
+            f"{value['device_id']}:{value.get('scored_at', '')}",
+            {
+                "tenant_id": value.get("tenant_id"),
+                "severity": value.get("risk_level"),
+                "status": "open",
+                "patient_id": value.get("device_id"),
+                "news2": value.get("news2"),
+                "qsofa": value.get("qsofa"),
+                "created_at": value.get("scored_at"),
+            },
+        )
 
-async def handle_risk_scored(indexer: BulkIndexer, payload: dict):
-    patient_id = payload.get("patient_id")
-    if not patient_id:
-        return
-    await indexer.add_update(
-        patient_id,
-        {
-            "news2": int(payload.get("news2", 0)),
-            "risk_level": payload.get("risk_level", "low"),
-            "updated_at": payload.get("scored_at"),
-        },
-    )
+    return None
 
 
 # ── Kafka consumer ────────────────────────────────────────────────────────────
 
-TOPIC_HANDLERS: dict[str, Any] = {
-    "domain.patient.created": handle_patient_created,
-    "domain.risk.scored": handle_risk_scored,
-}
 
-
-async def consume(indexer: BulkIndexer):
+async def consume(indexer: BulkIndexer) -> None:
+    """
+    Consume domain events from Kafka and route them into the BulkIndexer.
+    Runs until the enclosing TaskGroup is cancelled.
+    """
     consumer = AIOKafkaConsumer(
-        *TOPIC_HANDLERS.keys(),
+        *TOPICS,
         bootstrap_servers=KAFKA_BOOTSTRAP,
         group_id=CONSUMER_GROUP,
         value_deserializer=lambda v: json.loads(v.decode()),
         auto_offset_reset="earliest",
+        enable_auto_commit=True,
     )
     await consumer.start()
-    log.info("kafka_consumer_started", topics=list(TOPIC_HANDLERS.keys()))
+    log.info("kafka_consumer_started", topics=TOPICS, group=CONSUMER_GROUP)
+
     try:
         async for msg in consumer:
-            handler = TOPIC_HANDLERS.get(msg.topic)
-            if not handler:
-                continue
             try:
-                await handler(indexer, msg.value)
+                routed = route_event(msg.topic, msg.value)
+                if routed is None:
+                    continue
+                index, doc_id, doc = routed
+                await indexer.add(index, doc_id, doc)
             except Exception as exc:
-                log.error("handle_event_failed", topic=msg.topic, error=str(exc))
+                log.error(
+                    "event_routing_failed",
+                    topic=msg.topic,
+                    error=str(exc),
+                    raw=msg.value,
+                )
     except asyncio.CancelledError:
         pass
     finally:
@@ -186,110 +214,44 @@ async def consume(indexer: BulkIndexer):
         log.info("kafka_consumer_stopped")
 
 
-# ── HTTP: healthz + search ────────────────────────────────────────────────────
-
-_os_client: AsyncOpenSearch | None = None
+# ── Healthcheck ───────────────────────────────────────────────────────────────
 
 
 async def healthz_handler(_request: web.Request) -> web.Response:
+    """Liveness probe — always returns 200 if the process is running."""
     return web.Response(text="ok", status=200)
 
 
-async def search_handler(request: web.Request) -> web.Response:
-    """
-    POST /search
-    Body: { "query": "Jane", "tenantId": "...", "size": 20 }
-    Returns: { "hits": [ { id, mrn, full_name, ward, status, news2, risk_level } ] }
-    """
-    try:
-        body = await request.json()
-    except Exception:
-        return web.json_response({"error": "invalid JSON"}, status=400)
-
-    query_str = body.get("query", "")
-    tenant_id = body.get("tenantId", "")
-    size = min(int(body.get("size", 20)), 100)
-
-    if not tenant_id:
-        return web.json_response({"error": "tenantId required"}, status=400)
-
-    os_query = {
-        "size": size,
-        "query": {
-            "bool": {
-                "must": [
-                    {"term": {"tenant_id": tenant_id}},
-                ],
-                "should": [
-                    {"match": {"full_name": {"query": query_str, "fuzziness": "AUTO"}}},
-                    {"term": {"mrn": query_str}},
-                ]
-                if query_str
-                else [{"match_all": {}}],
-                "minimum_should_match": 1 if query_str else 0,
-            }
-        },
-        "_source": ["id", "mrn", "full_name", "ward", "status", "news2", "risk_level", "updated_at"],
-    }
-
-    try:
-        resp = await _os_client.search(index=PATIENT_INDEX, body=os_query)
-        hits = [{"id": h["_id"], **h["_source"]} for h in resp["hits"]["hits"]]
-        return web.json_response({"hits": hits, "total": resp["hits"]["total"]["value"]})
-    except Exception as exc:
-        log.error("opensearch_search_failed", error=str(exc))
-        return web.json_response({"error": "search failed"}, status=502)
-
-
-async def build_http_app() -> web.Application:
+async def start_healthz() -> None:
+    """Start the aiohttp healthcheck server on PORT (default 8084)."""
     app = web.Application()
     app.router.add_get("/healthz", healthz_handler)
-    app.router.add_post("/search", search_handler)
-    return app
-
-
-# ── Bootstrap ─────────────────────────────────────────────────────────────────
-
-
-async def ensure_index(client: AsyncOpenSearch):
-    exists = await client.indices.exists(index=PATIENT_INDEX)
-    if not exists:
-        await client.indices.create(index=PATIENT_INDEX, body=PATIENT_MAPPING)
-        log.info("opensearch_index_created", index=PATIENT_INDEX)
-    else:
-        log.info("opensearch_index_exists", index=PATIENT_INDEX)
-
-
-async def main():
-    global _os_client
-
-    log.info("search_indexer_starting", kafka=KAFKA_BOOTSTRAP, opensearch=OPENSEARCH_URL)
-
-    _os_client = AsyncOpenSearch(
-        hosts=[OPENSEARCH_URL],
-        use_ssl=False,
-        verify_certs=False,
-    )
-
-    await ensure_index(_os_client)
-
-    indexer = BulkIndexer(_os_client)
-
-    http_app = await build_http_app()
-    runner = web.AppRunner(http_app)
+    runner = web.AppRunner(app)
     await runner.setup()
-    port = int(os.getenv("PORT", "8087"))
+    port = int(os.getenv("PORT", "8084"))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    log.info("search_indexer_listening", port=port)
+    log.info("healthz_listening", port=port)
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+
+async def main() -> None:
+    """Bootstrap OpenSearch indices then start the consumer and flush loop."""
+    log.info("search_indexer_starting", kafka=KAFKA_BOOTSTRAP, opensearch=OPENSEARCH_URL)
+
+    client = AsyncOpenSearch(hosts=[OPENSEARCH_URL])
+    await ensure_indices(client)
+    indexer = BulkIndexer(client)
 
     try:
         async with asyncio.TaskGroup() as tg:
+            tg.create_task(start_healthz())
             tg.create_task(indexer.run_flush_loop())
             tg.create_task(consume(indexer))
     finally:
-        await _os_client.close()
-        await runner.cleanup()
+        await client.close()
 
 
 if __name__ == "__main__":

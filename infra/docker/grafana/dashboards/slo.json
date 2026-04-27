@@ -1,0 +1,146 @@
+{
+  "title": "CarePulse — SLO Dashboard",
+  "uid": "carepulse-slo",
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "id": 1,
+      "title": "Search Indexer — Kafka Consumer Lag",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 },
+      "targets": [{
+        "expr": "kafka_consumer_lag_sum{group=\"search-indexer\"}",
+        "legendFormat": "lag (messages)"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null,  "color": "green" },
+              { "value": 1000,  "color": "yellow" },
+              { "value": 10000, "color": "red" }
+            ]
+          },
+          "unit": "short"
+        }
+      }
+    },
+    {
+      "id": 2,
+      "title": "Search Indexer — Bulk Flush Rate (docs/s)",
+      "type": "timeseries",
+      "gridPos": { "x": 6, "y": 0, "w": 9, "h": 4 },
+      "targets": [{
+        "expr": "rate(search_indexer_docs_flushed_total[1m])",
+        "legendFormat": "docs/s"
+      }],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 3,
+      "title": "Search Indexer — Flush Error Rate",
+      "type": "timeseries",
+      "gridPos": { "x": 15, "y": 0, "w": 9, "h": 4 },
+      "targets": [{
+        "expr": "rate(search_indexer_flush_errors_total[1m])",
+        "legendFormat": "errors/s"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "green" },
+              { "value": 0.01, "color": "red" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 4,
+      "title": "API p99 / p50 Latency (ms)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 6 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.99, rate(http_request_duration_ms_bucket[5m]))",
+          "legendFormat": "p99 {{service}}"
+        },
+        {
+          "expr": "histogram_quantile(0.50, rate(http_request_duration_ms_bucket[5m]))",
+          "legendFormat": "p50 {{service}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "ms" } }
+    },
+    {
+      "id": 5,
+      "title": "Error Budget Remaining (30d window, 99.9% SLO)",
+      "type": "gauge",
+      "gridPos": { "x": 12, "y": 4, "w": 6, "h": 6 },
+      "targets": [{
+        "expr": "1 - (increase(http_requests_total{status=~\"5..\"}[30d]) / increase(http_requests_total[30d]))",
+        "legendFormat": "error budget"
+      }],
+      "fieldConfig": {
+        "defaults": {
+          "min": 0,
+          "max": 1,
+          "unit": "percentunit",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "value": null, "color": "red" },
+              { "value": 0.95, "color": "yellow" },
+              { "value": 0.999, "color": "green" }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 6,
+      "title": "Postgres Replication Lag",
+      "type": "timeseries",
+      "gridPos": { "x": 18, "y": 4, "w": 6, "h": 6 },
+      "targets": [{
+        "expr": "pg_replication_lag",
+        "legendFormat": "replication lag (s)"
+      }],
+      "fieldConfig": { "defaults": { "unit": "s" } }
+    },
+    {
+      "id": 7,
+      "title": "OpenSearch — Index Doc Count",
+      "type": "stat",
+      "gridPos": { "x": 0, "y": 8, "w": 6, "h": 4 },
+      "targets": [{
+        "expr": "opensearch_index_docs_count{index=~\"carepack-.*\"}",
+        "legendFormat": "{{index}}"
+      }],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 8,
+      "title": "Alert Pipeline — Risk Events Scored (rate)",
+      "type": "timeseries",
+      "gridPos": { "x": 6, "y": 8, "w": 18, "h": 4 },
+      "targets": [
+        {
+          "expr": "rate(kafka_topic_messages_in_total{topic=\"domain.risk.scored\"}[1m])",
+          "legendFormat": "scored/s"
+        },
+        {
+          "expr": "rate(kafka_topic_messages_in_total{topic=\"domain.telemetry.ingested\"}[1m])",
+          "legendFormat": "ingested/s"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short" } }
+    }
+  ]
+}

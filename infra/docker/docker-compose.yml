@@ -227,6 +227,29 @@ services:
       - prometheus
       - postgres
 
+  # ── OpenSearch (S6) ───────────────────────────────────────────────────────────
+  # search-indexer bulk-indexes patient + alert events here.
+  # Security plugin disabled for local dev — enable for production.
+  opensearch:
+    image: opensearchproject/opensearch:2.14.0
+    container_name: carepack-opensearch
+    restart: unless-stopped
+    environment:
+      - discovery.type=single-node
+      - OPENSEARCH_JAVA_OPTS=-Xms512m -Xmx512m
+      - DISABLE_INSTALL_DEMO_CONFIG=true
+      - DISABLE_SECURITY_PLUGIN=true
+    ports:
+      - "9200:9200"
+    volumes:
+      - opensearch_data:/usr/share/opensearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health | grep -q '\"status\":\"green\"\\|\"status\":\"yellow\"'"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
 volumes:
   postgres_data:
   kafka_data:
@@ -235,3 +258,4 @@ volumes:
   opensearch_data:
   prometheus_data:
   grafana_data:
+  opensearch_data:

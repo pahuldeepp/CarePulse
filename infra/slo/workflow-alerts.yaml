@@ -16,6 +16,25 @@ slos:
         long_window: 6h
         burn_rate: 6
 
+  - name: ack_latency
+    sli:
+      type: latency
+      good_query: sum(rate(alert_ack_duration_seconds_bucket{service="workflow-alerts",le="0.5"}[5m]))
+      total_query: sum(rate(alert_ack_duration_seconds_count{service="workflow-alerts"}[5m]))
+    objective: 99.0
+    window: 30d
+    burn_rate_alerts:
+      - severity: ticket
+        long_window: 6h
+        burn_rate: 6
+    notes: |
+      Time from clinician POST /alerts/:id/ack to both Postgres and the
+      escalation projection (today: DynamoDB) reflecting acknowledged_at.
+      Matters because check_handler Lambda reads acknowledged_at to decide
+      whether to fire the 15-min escalation — a stale read means a nurse
+      who already acked gets paged again, or worse, escalation suppression
+      lingers after a failed ack.
+
   - name: dynamo_projection_lag
     sli:
       type: latency

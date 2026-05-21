@@ -1,0 +1,34 @@
+service: workflow-alerts
+owner: clinical-ops
+slos:
+  - name: alert_creation_availability
+    sli:
+      type: availability
+      good_query: sum(rate(alerts_created_total{service="workflow-alerts",status="ok"}[5m]))
+      total_query: sum(rate(alerts_created_total{service="workflow-alerts"}[5m]))
+    objective: 99.95
+    window: 30d
+    burn_rate_alerts:
+      - severity: page
+        long_window: 1h
+        burn_rate: 14.4
+      - severity: ticket
+        long_window: 6h
+        burn_rate: 6
+
+  - name: dynamo_projection_lag
+    sli:
+      type: latency
+      good_query: sum(rate(alert_dynamo_write_duration_seconds_bucket{service="workflow-alerts",le="1"}[5m]))
+      total_query: sum(rate(alert_dynamo_write_duration_seconds_count{service="workflow-alerts"}[5m]))
+    objective: 99.9
+    window: 30d
+    burn_rate_alerts:
+      - severity: page
+        long_window: 1h
+        burn_rate: 14.4
+    notes: |
+      Tight SLO because the DynamoDB stream → Lambda is the escalation entry point.
+      A miss here = no nurse paged in the NHS NEWS2 15-min window.
+      See ADR-0005 + S9-08 — once the projection moves to a Kafka consumer,
+      this SLI should be redefined as consumer lag, not write duration.

@@ -1,0 +1,29 @@
+service: telemetry-ingest
+owner: platform
+slos:
+  - name: availability
+    sli:
+      type: availability
+      good_query: sum(rate(http_requests_total{service="telemetry-ingest",code!~"5.."}[5m]))
+      total_query: sum(rate(http_requests_total{service="telemetry-ingest"}[5m]))
+    objective: 99.95
+    window: 30d
+    burn_rate_alerts:
+      - severity: page
+        long_window: 1h
+        burn_rate: 14.4
+      - severity: ticket
+        long_window: 6h
+        burn_rate: 6
+
+  - name: p99_ingest_latency
+    sli:
+      type: latency
+      good_query: sum(rate(http_request_duration_seconds_bucket{service="telemetry-ingest",le="0.1"}[5m]))
+      total_query: sum(rate(http_request_duration_seconds_count{service="telemetry-ingest"}[5m]))
+    objective: 99.0
+    window: 30d
+    burn_rate_alerts:
+      - severity: ticket
+        long_window: 6h
+        burn_rate: 6

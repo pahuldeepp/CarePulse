@@ -2,6 +2,9 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
 scrape_configs:
   - job_name: postgres
     static_configs:
@@ -11,3 +14,38 @@ scrape_configs:
   - job_name: prometheus
     static_configs:
       - targets: ["localhost:9090"]
+
+  - job_name: gateway-graphql
+    static_configs:
+      - targets: ["gateway-graphql:4000"]
+    metrics_path: /metrics
+
+  - job_name: patient-service
+    static_configs:
+      - targets: ["patient-service:3000"]
+    metrics_path: /metrics
+
+  - job_name: telemetry-ingest
+    static_configs:
+      - targets: ["telemetry-ingest:8080"]
+    metrics_path: /metrics
+
+  - job_name: workflow-alerts
+    static_configs:
+      - targets: ["workflow-alerts:3001"]
+    metrics_path: /metrics
+
+  - job_name: risk-engine
+    static_configs:
+      - targets: ["risk-engine:8001"]
+    metrics_path: /metrics
+
+  - job_name: fhir-gateway
+    static_configs:
+      - targets: ["fhir-gateway:8002"]
+    metrics_path: /metrics
+
+  - job_name: billing-service
+    static_configs:
+      - targets: ["billing-service:3002"]
+    metrics_path: /metrics

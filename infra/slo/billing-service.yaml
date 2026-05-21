@@ -1,0 +1,26 @@
+service: billing-service
+owner: revenue
+slos:
+  - name: availability
+    sli:
+      type: availability
+      good_query: sum(rate(http_requests_total{service="billing-service",code!~"5.."}[5m]))
+      total_query: sum(rate(http_requests_total{service="billing-service"}[5m]))
+    objective: 99.5
+    window: 30d
+    burn_rate_alerts:
+      - severity: ticket
+        long_window: 6h
+        burn_rate: 6
+
+  - name: stripe_webhook_processing
+    sli:
+      type: availability
+      good_query: sum(rate(stripe_webhook_processed_total{service="billing-service",status="ok"}[5m]))
+      total_query: sum(rate(stripe_webhook_processed_total{service="billing-service"}[5m]))
+    objective: 99.9
+    window: 30d
+    burn_rate_alerts:
+      - severity: page
+        long_window: 1h
+        burn_rate: 14.4

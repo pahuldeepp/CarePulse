@@ -1,0 +1,18 @@
+service: fhir-gateway
+owner: interop
+slos:
+  - name: availability
+    sli:
+      type: availability
+      good_query: sum(rate(http_requests_total{service="fhir-gateway",code!~"5.."}[5m]))
+      total_query: sum(rate(http_requests_total{service="fhir-gateway"}[5m]))
+    objective: 99.5
+    window: 30d
+    burn_rate_alerts:
+      - severity: ticket
+        long_window: 6h
+        burn_rate: 6
+    notes: |
+      Lower target — fhir-gateway depends on partner EHR systems whose own
+      availability bounds ours. See out-of-scope note in error-budget-policy.md
+      on external-API dependency SLOs.

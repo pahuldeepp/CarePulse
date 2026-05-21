@@ -1,0 +1,32 @@
+groups:
+  - name: slo-burn-rate
+    interval: 30s
+    rules:
+      - alert: GatewayGraphQLAvailabilityFastBurn
+        expr: |
+          (
+            sum(rate(http_requests_total{service="gateway-graphql",code=~"5.."}[1h]))
+            /
+            sum(rate(http_requests_total{service="gateway-graphql"}[1h]))
+          ) > (14.4 * (1 - 0.999))
+        for: 2m
+        labels:
+          severity: page
+          slo: gateway-graphql.availability
+        annotations:
+          summary: gateway-graphql burning error budget 14.4x over 1h
+          runbook: https://github.com/pahuldeepp/Carepack/blob/main/docs/runbooks/gateway-graphql-availability.md
+
+      - alert: GatewayGraphQLAvailabilitySlowBurn
+        expr: |
+          (
+            sum(rate(http_requests_total{service="gateway-graphql",code=~"5.."}[6h]))
+            /
+            sum(rate(http_requests_total{service="gateway-graphql"}[6h]))
+          ) > (6 * (1 - 0.999))
+        for: 15m
+        labels:
+          severity: ticket
+          slo: gateway-graphql.availability
+        annotations:
+          summary: gateway-graphql burning error budget 6x over 6h

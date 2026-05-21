@@ -1,0 +1,29 @@
+service: gateway-graphql
+owner: platform
+slos:
+  - name: availability
+    sli:
+      type: availability
+      good_query: sum(rate(http_requests_total{service="gateway-graphql",code!~"5.."}[5m]))
+      total_query: sum(rate(http_requests_total{service="gateway-graphql"}[5m]))
+    objective: 99.9
+    window: 30d
+    burn_rate_alerts:
+      - severity: page
+        long_window: 1h
+        burn_rate: 14.4
+      - severity: ticket
+        long_window: 6h
+        burn_rate: 6
+
+  - name: p95_latency
+    sli:
+      type: latency
+      good_query: sum(rate(http_request_duration_seconds_bucket{service="gateway-graphql",le="0.3"}[5m]))
+      total_query: sum(rate(http_request_duration_seconds_count{service="gateway-graphql"}[5m]))
+    objective: 99.0
+    window: 30d
+    burn_rate_alerts:
+      - severity: ticket
+        long_window: 6h
+        burn_rate: 6

@@ -1,0 +1,29 @@
+service: risk-engine
+owner: clinical-ml
+slos:
+  - name: scoring_availability
+    sli:
+      type: availability
+      good_query: sum(rate(risk_scored_total{service="risk-engine",status="ok"}[5m]))
+      total_query: sum(rate(risk_scored_total{service="risk-engine"}[5m]))
+    objective: 99.9
+    window: 30d
+    burn_rate_alerts:
+      - severity: page
+        long_window: 1h
+        burn_rate: 14.4
+      - severity: ticket
+        long_window: 6h
+        burn_rate: 6
+
+  - name: scoring_latency
+    sli:
+      type: latency
+      good_query: sum(rate(risk_score_duration_seconds_bucket{service="risk-engine",le="0.5"}[5m]))
+      total_query: sum(rate(risk_score_duration_seconds_count{service="risk-engine"}[5m]))
+    objective: 99.0
+    window: 30d
+    burn_rate_alerts:
+      - severity: ticket
+        long_window: 6h
+        burn_rate: 6

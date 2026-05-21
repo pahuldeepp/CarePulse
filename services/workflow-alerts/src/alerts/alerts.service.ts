@@ -31,6 +31,8 @@ export class AlertsService {
     const eventId = randomUUID();
 
     const alert = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${event.tenant_id}, true)`;
+
       const row = await tx.alert.create({
         data: {
           alert_id: alertId,
@@ -79,11 +81,13 @@ export class AlertsService {
     );
   }
 
-  async acknowledge(alertId: string, nurseId: string): Promise<void> {
+  async acknowledge(alertId: string, nurseId: string, tenantId: string): Promise<void> {
     const now = new Date();
     const eventId = randomUUID();
 
     const updated = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`;
+
       const row = await tx.alert.update({
         where: { alert_id: alertId },
         data: { acknowledged_at: now, acknowledged_by: nurseId },
@@ -92,13 +96,13 @@ export class AlertsService {
       await tx.outboxEvent.create({
         data: {
           id: eventId,
-          tenantId: row.tenant_id,
+          tenantId,
           aggregateId: alertId,
           aggregateType: 'Alert',
           eventType: 'AlertAcknowledged',
           payload: {
             alert_id: alertId,
-            tenant_id: row.tenant_id,
+            tenant_id: tenantId,
             acknowledged_at: now.toISOString(),
             acknowledged_by: nurseId,
           },

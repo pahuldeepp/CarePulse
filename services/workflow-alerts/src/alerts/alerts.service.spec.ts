@@ -1,12 +1,13 @@
 import { AlertsService, RiskScoredEvent } from './alerts.service';
 
-type MockTx = {
+type Tx = {
   alert: { create: jest.Mock; update: jest.Mock };
   outboxEvent: { create: jest.Mock };
+  $executeRaw: jest.Mock;
 };
 
 function makePrismaMock() {
-  const tx: MockTx = {
+  const tx: Tx = {
     alert: {
       create: jest.fn().mockImplementation(({ data }) => Promise.resolve(data)),
       update: jest
@@ -16,11 +17,12 @@ function makePrismaMock() {
         ),
     },
     outboxEvent: { create: jest.fn().mockResolvedValue(undefined) },
+    $executeRaw: jest.fn().mockResolvedValue(1),
   };
   return {
     tx,
     prisma: {
-      $transaction: jest.fn(async (cb: (tx: MockTx) => Promise<unknown>) => cb(tx)),
+      $transaction: jest.fn(async (cb: (tx: Tx) => Promise<unknown>) => cb(tx)),
     },
   };
 }
@@ -51,6 +53,7 @@ describe('AlertsService (S9-08 transactional outbox)', () => {
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(tx.alert.create).toHaveBeenCalledTimes(1);
     expect(tx.outboxEvent.create).toHaveBeenCalledTimes(1);
+    expect(tx.$executeRaw).toHaveBeenCalled();
 
     const outboxArg = tx.outboxEvent.create.mock.calls[0][0].data;
     expect(outboxArg.aggregateType).toBe('Alert');
@@ -87,7 +90,7 @@ describe('AlertsService (S9-08 transactional outbox)', () => {
     const { prisma, tx } = makePrismaMock();
     const service = new AlertsService(prisma as never, redis as never);
 
-    await service.acknowledge('alert-123', 'nurse-9');
+    await service.acknowledge('alert-123', 'nurse-9', 't-1');
 
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
     expect(tx.alert.update).toHaveBeenCalledTimes(1);

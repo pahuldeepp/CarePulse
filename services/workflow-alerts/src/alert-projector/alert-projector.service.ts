@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
+import { Kafka, Producer } from 'kafkajs';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface AlertCreatedPayload {
@@ -26,15 +27,42 @@ export interface OutboxEnvelope {
   payload: AlertCreatedPayload | AlertAcknowledgedPayload;
 }
 
+const DLQ_TOPIC = process.env.ALERT_PROJECTOR_DLQ_TOPIC ?? 'cdc.outbox.events.dlq';
+const AWS_REGION = process.env.AWS_REGION ?? 'us-east-1';
+const DYNAMO_MAX_ATTEMPTS = parseInt(process.env.DYNAMO_MAX_ATTEMPTS ?? '3', 10);
+
 @Injectable()
-export class AlertProjectorService {
+export class AlertProjectorService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(AlertProjectorService.name);
   private readonly dynamo: DynamoDBClient;
   private readonly alertsTable: string;
+  private readonly kafka: Kafka | null;
+  private producer: Producer | null = null;
 
   constructor(private readonly prisma: PrismaService) {
-    this.dynamo = new DynamoDBClient({});
+    this.dynamo = new DynamoDBClient({
+      region: AWS_REGION,
+      maxAttempts: DYNAMO_MAX_ATTEMPTS,
+    });
     this.alertsTable = process.env.DYNAMODB_TABLE ?? 'carepulse-alerts';
+
+    const brokers = process.env.KAFKA_BROKERS?.split(',') ?? [];
+    this.kafka = brokers.length
+      ? new Kafka({ clientId: 'alert-projector', brokers })
+      : null;
+  }
+
+  async onModuleInit(): Promise<void> {
+    if (!this.kafka) {
+      this.logger.warn('KAFKA_BROKERS not set — DLQ publishing disabled');
+      return;
+    }
+    this.producer = this.kafka.producer();
+    await this.producer.connect();
+  }
+
+  async onModuleDestroy(): Promise<void> {
+    if (this.producer) await this.producer.disconnect();
   }
 
   async project(envelope: OutboxEnvelope): Promise<void> {
@@ -50,16 +78,22 @@ export class AlertProjectorService {
       return;
     }
 
-    switch (envelope.event_type) {
-      case 'AlertCreated':
-        await this.writeCreated(envelope.payload as AlertCreatedPayload);
-        break;
-      case 'AlertAcknowledged':
-        await this.writeAcknowledged(envelope.payload as AlertAcknowledgedPayload);
-        break;
-      default:
-        this.logger.debug(`skip_unknown_event_type type=${envelope.event_type}`);
-        return;
+    try {
+      switch (envelope.event_type) {
+        case 'AlertCreated':
+          await this.writeCreated(envelope.payload as AlertCreatedPayload);
+          break;
+        case 'AlertAcknowledged':
+          await this.writeAcknowledged(envelope.payload as AlertAcknowledgedPayload);
+          break;
+        default:
+          this.logger.debug(`skip_unknown_event_type type=${envelope.event_type}`);
+          return;
+      }
+    } catch (err) {
+      await this.sendToDlq(envelope, err);
+      await this.prisma.processedEvent.create({ data: { id: envelope.id } });
+      return;
     }
 
     await this.prisma.processedEvent.create({ data: { id: envelope.id } });
@@ -92,5 +126,27 @@ export class AlertProjectorService {
         },
       }),
     );
+  }
+
+  private async sendToDlq(envelope: OutboxEnvelope, cause: unknown): Promise<void> {
+    const reason = cause instanceof Error ? cause.message : String(cause);
+    this.logger.error(`projection_failed event_id=${envelope.id} reason=${reason}`);
+
+    if (!this.producer) {
+      this.logger.error(
+        `dlq_unavailable event_id=${envelope.id} — KAFKA_BROKERS unset, event will not be reprocessable`,
+      );
+      return;
+    }
+
+    await this.producer.send({
+      topic: DLQ_TOPIC,
+      messages: [
+        {
+          key: envelope.id,
+          value: JSON.stringify({ envelope, reason, failed_at: new Date().toISOString() }),
+        },
+      ],
+    });
   }
 }

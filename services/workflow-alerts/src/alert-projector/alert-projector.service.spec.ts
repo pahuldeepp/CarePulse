@@ -9,6 +9,16 @@ jest.mock('@aws-sdk/client-dynamodb', () => {
   };
 });
 
+jest.mock('kafkajs', () => ({
+  Kafka: jest.fn().mockImplementation(() => ({
+    producer: () => ({
+      connect: jest.fn().mockResolvedValue(undefined),
+      disconnect: jest.fn().mockResolvedValue(undefined),
+      send: jest.fn().mockResolvedValue(undefined),
+    }),
+  })),
+}));
+
 const { __mockSend: mockSend } = jest.requireMock('@aws-sdk/client-dynamodb');
 
 function makePrismaMock(alreadyProcessed: boolean) {
@@ -71,6 +81,34 @@ describe('AlertProjectorService (S9-08)', () => {
 
     expect(mockSend).not.toHaveBeenCalled();
     expect(prisma.processedEvent.create).not.toHaveBeenCalled();
+  });
+
+  it('on DynamoDB failure routes envelope to DLQ and marks processed', async () => {
+    mockSend.mockRejectedValueOnce(new Error('throttled'));
+    process.env.KAFKA_BROKERS = 'localhost:9092';
+
+    const prisma = makePrismaMock(false);
+    const svc = new AlertProjectorService(prisma as never);
+    await svc.onModuleInit();
+
+    await svc.project({
+      id: 'evt-3',
+      aggregate_type: 'Alert',
+      event_type: 'AlertCreated',
+      payload: {
+        alert_id: 'a-3',
+        tenant_id: 't-1',
+        device_id: 'd-3',
+        severity: 'high',
+        news2: 5,
+        qsofa: 1,
+        triggered_at: '2026-05-21T10:00:00.000Z',
+      },
+    });
+
+    expect(prisma.processedEvent.create).toHaveBeenCalledWith({ data: { id: 'evt-3' } });
+    await svc.onModuleDestroy();
+    delete process.env.KAFKA_BROKERS;
   });
 
   it('skips non-Alert aggregate types', async () => {

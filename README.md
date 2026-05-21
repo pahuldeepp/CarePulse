@@ -9,6 +9,10 @@
 [![Quality Gate Status](https://sonarcloud.io/api/project_badges/measure?project=pahuldeepp_CarePulse&metric=alert_status)](https://sonarcloud.io/summary/new_code?id=pahuldeepp_CarePulse)
 [![Coverage](https://sonarcloud.io/api/project_badges/measure?project=pahuldeepp_CarePulse&metric=coverage)](https://sonarcloud.io/summary/new_code?id=pahuldeepp_CarePulse)
 
+> ⚠️ **Status: pre-production reference implementation.**
+> Architecture and most service code is in place (S1–S9 of 14), but the system is **not yet safe to handle real Protected Health Information (PHI)**. Hard blockers before any real-patient use: HIPAA controls + signed BAAs (S11), full integration testing of the CDC/outbox chain, secrets-manager integration (no Vault/SM yet — `.env` only), on-call rotation (S10), verified multi-region deploy pipeline (S13–S14). Treat as a portfolio / architecture reference, not a deployable product.
+> See [docs/sprints/S9-S10.md](docs/sprints/S9-S10.md) for the current sprint.
+
 ---
 
 ## What it solves

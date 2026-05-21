@@ -17,7 +17,7 @@
 
 ## GitHub
 
-Remote: **pahuldeepp/Carepack** — single repo for the whole monorepo.
+Remote: **pahuldeepp/CarePulse** — single repo for the whole monorepo.
 
 ## MCP: CodeRabbit
 

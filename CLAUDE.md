@@ -29,11 +29,21 @@ Do not commit secrets, API keys, or real PHI. Prefer env files (gitignored) and 
 
 ## Current Sprint
 
-**S4 — Risk engine + FHIR stub + projection hardening (Wk 7-8)**
+**S9 — SLOs + error-budget policy (R5, Wk 17-18)**
 
-Next up → S5: Debezium CDC + outbox pipeline (Wk 9-10)
+Next up → S10: monthly incident-drill automation (chaos + game-day runbooks)
 
-Completed: S1 monorepo bootstrap, S2 core write/read/auth, S3 NestJS domain services + alert pipeline + AWS (DynamoDB/S3/Lambda/CDK).
+Completed:
+- S1 monorepo bootstrap
+- S2 core write/read/auth + RLS + outbox
+- S3 NestJS domain services + alert pipeline + AWS (DynamoDB/S3/Lambda/CDK)
+- S4 risk engine + FHIR stub + projection hardening
+- S5 Debezium CDC + outbox reaper + DLQ + read-model-builder
+- S6 fhir-gateway CDS hooks + search-indexer OpenSearch + GraphQL searchPatients
+- S7 billing-service (Stripe) + RLS tenant isolation
+- S8 HIPAA audit trail + fhir-gateway middleware + chaos baseline
+
+Release milestones still ahead: R5 S9–S10 (this), R6 S11–S12 HIPAA + E2E, R7 S13–S14 multi-region.
 
 ## Coding Standards
 

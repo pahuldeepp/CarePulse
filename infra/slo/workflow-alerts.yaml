@@ -38,8 +38,9 @@ slos:
   - name: dynamo_projection_lag
     sli:
       type: latency
-      good_query: sum(rate(alert_dynamo_write_duration_seconds_bucket{service="workflow-alerts",le="1"}[5m]))
-      total_query: sum(rate(alert_dynamo_write_duration_seconds_count{service="workflow-alerts"}[5m]))
+      good_query: |
+        sum(rate(kafka_consumer_records_lag_max{service="workflow-alerts",topic="cdc.outbox.events",group="alert-projector"}[5m])) <= bool 100
+      total_query: vector(1)
     objective: 99.9
     window: 30d
     burn_rate_alerts:
@@ -47,7 +48,7 @@ slos:
         long_window: 1h
         burn_rate: 14.4
     notes: |
-      Tight SLO because the DynamoDB stream → Lambda is the escalation entry point.
-      A miss here = no nurse paged in the NHS NEWS2 15-min window.
-      See ADR-0005 + S9-08 — once the projection moves to a Kafka consumer,
-      this SLI should be redefined as consumer lag, not write duration.
+      Measured as consumer lag on the alert-projector group (post-S9-08).
+      Lag ≤100 messages is "good"; sustained breach indicates the projector
+      can't keep up and the escalation Lambda will fire late or not at all
+      within the NHS NEWS2 15-min window. See ADR-0005.

@@ -86,6 +86,27 @@ describe('AlertsService (S9-08 transactional outbox)', () => {
     expect(redis.publish).not.toHaveBeenCalled();
   });
 
+  it('rolls back the alert insert if the outbox insert fails', async () => {
+    const { prisma, tx } = makePrismaMock();
+    tx.outboxEvent.create.mockRejectedValueOnce(new Error('outbox write failed'));
+    const service = new AlertsService(prisma as never, redis as never);
+
+    await expect(
+      service.handleRiskScored({
+        device_id: 'dev-rollback',
+        tenant_id: 't-1',
+        news2: 6,
+        qsofa: 1,
+        risk_level: 'high',
+        scored_at: '2026-05-21T10:00:00.000Z',
+        emit_alert: true,
+      }),
+    ).rejects.toThrow('outbox write failed');
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(redis.publish).not.toHaveBeenCalled();
+  });
+
   it('writes ack + AlertAcknowledged outbox event in one transaction', async () => {
     const { prisma, tx } = makePrismaMock();
     const service = new AlertsService(prisma as never, redis as never);

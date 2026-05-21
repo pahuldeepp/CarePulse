@@ -10,6 +10,11 @@ scrape_configs:
     static_configs:
       - targets: ["postgres-exporter:9187"]
     metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '([^:]+).*'
+        target_label: service
+        replacement: '$1'
 
   - job_name: prometheus
     static_configs:
@@ -19,33 +24,68 @@ scrape_configs:
     static_configs:
       - targets: ["gateway-graphql:4000"]
     metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '([^:]+).*'
+        target_label: service
+        replacement: '$1'
 
   - job_name: patient-service
     static_configs:
       - targets: ["patient-service:3000"]
     metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '([^:]+).*'
+        target_label: service
+        replacement: '$1'
 
   - job_name: telemetry-ingest
     static_configs:
       - targets: ["telemetry-ingest:8080"]
     metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '([^:]+).*'
+        target_label: service
+        replacement: '$1'
 
   - job_name: workflow-alerts
     static_configs:
       - targets: ["workflow-alerts:3001"]
     metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '([^:]+).*'
+        target_label: service
+        replacement: '$1'
 
   - job_name: risk-engine
     static_configs:
       - targets: ["risk-engine:8001"]
     metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '([^:]+).*'
+        target_label: service
+        replacement: '$1'
 
   - job_name: fhir-gateway
     static_configs:
       - targets: ["fhir-gateway:8002"]
     metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '([^:]+).*'
+        target_label: service
+        replacement: '$1'
 
   - job_name: billing-service
     static_configs:
       - targets: ["billing-service:3002"]
     metrics_path: /metrics
+    relabel_configs:
+      - source_labels: [__address__]
+        regex: '([^:]+).*'
+        target_label: service
+        replacement: '$1'

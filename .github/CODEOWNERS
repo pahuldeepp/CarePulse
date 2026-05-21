@@ -1,0 +1,11 @@
+* @pahuldeepp
+
+/services/workflow-alerts/  @pahuldeepp
+/services/patient-service/  @pahuldeepp
+/services/fhir-gateway/     @pahuldeepp
+/services/risk-engine/      @pahuldeepp
+/services/billing-service/  @pahuldeepp
+
+/adr/                       @pahuldeepp
+/infra/                     @pahuldeepp
+/.github/                   @pahuldeepp

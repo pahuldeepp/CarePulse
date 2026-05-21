@@ -116,16 +116,36 @@ export class AlertProjectorService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async writeAcknowledged(p: AlertAcknowledgedPayload): Promise<void> {
-    await this.dynamo.send(
-      new PutItemCommand({
-        TableName: this.alertsTable,
-        Item: {
-          alert_id:        { S: p.alert_id },
-          acknowledged_at: { S: p.acknowledged_at },
-          acknowledged_by: { S: p.acknowledged_by },
-        },
-      }),
-    );
+    try {
+      await this.dynamo.send(
+        new PutItemCommand({
+          TableName: this.alertsTable,
+          Item: {
+            alert_id:        { S: p.alert_id },
+            acknowledged_at: { S: p.acknowledged_at },
+            acknowledged_by: { S: p.acknowledged_by },
+          },
+          ConditionExpression:
+            'attribute_not_exists(acknowledged_at) OR acknowledged_at <= :incoming',
+          ExpressionAttributeValues: {
+            ':incoming': { S: p.acknowledged_at },
+          },
+        }),
+      );
+    } catch (err: unknown) {
+      if (
+        err &&
+        typeof err === 'object' &&
+        'name' in err &&
+        (err as { name: string }).name === 'ConditionalCheckFailedException'
+      ) {
+        this.logger.debug(
+          `skip_stale_ack alert_id=${p.alert_id} incoming_ts=${p.acknowledged_at}`,
+        );
+        return;
+      }
+      throw err;
+    }
   }
 
   private async sendToDlq(envelope: OutboxEnvelope, cause: unknown): Promise<void> {

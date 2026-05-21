@@ -11,7 +11,7 @@ model Alert {
   alert_id        String    @id @default(uuid())
   tenant_id       String
   device_id       String
-  severity        String    // low | medium | high | critical
+  severity        String
   news2           Int
   qsofa           Int
   triggered_at    DateTime  @default(now())
@@ -20,4 +20,26 @@ model Alert {
 
   @@index([tenant_id, triggered_at(sort: Desc)])
   @@map("alerts")
+}
+
+model OutboxEvent {
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  aggregateId   String    @map("aggregate_id")
+  aggregateType String    @default("Alert") @map("aggregate_type")
+  eventType     String    @map("event_type")
+  payload       Json
+  processedAt   DateTime? @map("processed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@index([processedAt, createdAt])
+  @@index([aggregateType])
+  @@map("outbox_events")
+}
+
+model ProcessedEvent {
+  id          String   @id
+  processedAt DateTime @default(now()) @map("processed_at")
+
+  @@map("processed_events")
 }

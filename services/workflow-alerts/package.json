@@ -6,7 +6,8 @@
     "start": "node dist/main.js",
     "dev": "ts-node src/main.ts",
     "build": "tsc",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "jest"
   },
   "dependencies": {
     "@aws-sdk/client-dynamodb": "^3.600.0",
@@ -22,9 +23,12 @@
     "winston": "^3.13.0"
   },
   "devDependencies": {
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.14.9",
     "eslint": "^9.39.0",
+    "jest": "^30.4.2",
     "prisma": "^5.16.1",
+    "ts-jest": "^29.4.11",
     "ts-node": "^10.9.2",
     "typescript": "^5.5.3"
   }

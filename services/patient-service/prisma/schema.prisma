@@ -52,10 +52,9 @@ model Patient {
   createdAt   DateTime  @default(now()) @map("created_at")
   updatedAt   DateTime  @updatedAt @map("updated_at")
 
-  tenant       Tenant        @relation(fields: [tenantId], references: [id])
-  alerts       Alert[]
-  carePlans    CarePlan[]
-  outboxEvents OutboxEvent[]
+  tenant    Tenant     @relation(fields: [tenantId], references: [id])
+  alerts    Alert[]
+  carePlans CarePlan[]
 
   @@unique([tenantId, mrn])
   @@map("patients")
@@ -93,17 +92,17 @@ model CarePlan {
 }
 
 model OutboxEvent {
-  id          String    @id @default(uuid())
-  tenantId    String    @map("tenant_id")
-  aggregateId String    @map("aggregate_id")
-  eventType   String    @map("event_type")
-  payload     Json
-  processedAt DateTime? @map("processed_at")
-  createdAt   DateTime  @default(now()) @map("created_at")
-
-  patient Patient @relation(fields: [aggregateId], references: [id])
+  id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
+  aggregateId   String    @map("aggregate_id")
+  aggregateType String    @default("Patient") @map("aggregate_type")
+  eventType     String    @map("event_type")
+  payload       Json
+  processedAt   DateTime? @map("processed_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
 
   @@index([processedAt, createdAt])
+  @@index([aggregateType])
   @@map("outbox_events")
 }
 

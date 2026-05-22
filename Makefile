@@ -3,7 +3,7 @@
 COMPOSE := docker compose -f infra/docker/docker-compose.yml
 
 sre-up:  ## Bring up the full observability stack
-	$(COMPOSE) up -d postgres kafka kafka-connect zookeeper prometheus grafana
+	$(COMPOSE) up -d postgres kafka connect prometheus grafana
 	@echo
 	@echo "Stack starting. Once healthy:"
 	@echo "  Grafana:    http://localhost:3000  (admin/admin)"
@@ -16,7 +16,7 @@ sre-down:  ## Stop the observability stack
 	$(COMPOSE) down
 
 sre-status:  ## Show health of the SRE stack
-	@$(COMPOSE) ps prometheus grafana postgres kafka
+	@$(COMPOSE) ps prometheus grafana postgres kafka connect
 
 sre-grafana:  ## Open the SLO dashboard in your browser
 	@open http://localhost:3000/d/carepulse-slo 2>/dev/null \

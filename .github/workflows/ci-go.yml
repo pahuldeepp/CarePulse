@@ -12,6 +12,7 @@ on:
       - 'packages/otel-go/**'
       - 'go.work'
       - 'go.work.sum'
+      - '.github/workflows/ci-go.yml'
   pull_request:
     paths:
       - 'services/telemetry-ingest/**'
@@ -22,6 +23,7 @@ on:
       - 'packages/otel-go/**'
       - 'go.work'
       - 'go.work.sum'
+      - '.github/workflows/ci-go.yml'
 
 jobs:
   lint-and-test:

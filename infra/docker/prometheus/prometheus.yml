@@ -22,70 +22,49 @@ scrape_configs:
 
   - job_name: gateway-graphql
     static_configs:
-      - targets: ["gateway-graphql:4000"]
+      - targets: ["host.docker.internal:4000"]
+        labels:
+          service: gateway-graphql
     metrics_path: /metrics
-    relabel_configs:
-      - source_labels: [__address__]
-        regex: '([^:]+).*'
-        target_label: service
-        replacement: '$1'
 
   - job_name: patient-service
     static_configs:
-      - targets: ["patient-service:3000"]
+      - targets: ["host.docker.internal:3000"]
+        labels:
+          service: patient-service
     metrics_path: /metrics
-    relabel_configs:
-      - source_labels: [__address__]
-        regex: '([^:]+).*'
-        target_label: service
-        replacement: '$1'
 
   - job_name: telemetry-ingest
     static_configs:
-      - targets: ["telemetry-ingest:8080"]
+      - targets: ["host.docker.internal:8080"]
+        labels:
+          service: telemetry-ingest
     metrics_path: /metrics
-    relabel_configs:
-      - source_labels: [__address__]
-        regex: '([^:]+).*'
-        target_label: service
-        replacement: '$1'
 
   - job_name: workflow-alerts
     static_configs:
-      - targets: ["workflow-alerts:3001"]
+      - targets: ["host.docker.internal:3001"]
+        labels:
+          service: workflow-alerts
     metrics_path: /metrics
-    relabel_configs:
-      - source_labels: [__address__]
-        regex: '([^:]+).*'
-        target_label: service
-        replacement: '$1'
 
   - job_name: risk-engine
     static_configs:
-      - targets: ["risk-engine:8001"]
+      - targets: ["host.docker.internal:8001"]
+        labels:
+          service: risk-engine
     metrics_path: /metrics
-    relabel_configs:
-      - source_labels: [__address__]
-        regex: '([^:]+).*'
-        target_label: service
-        replacement: '$1'
 
   - job_name: fhir-gateway
     static_configs:
-      - targets: ["fhir-gateway:8002"]
+      - targets: ["host.docker.internal:8002"]
+        labels:
+          service: fhir-gateway
     metrics_path: /metrics
-    relabel_configs:
-      - source_labels: [__address__]
-        regex: '([^:]+).*'
-        target_label: service
-        replacement: '$1'
 
   - job_name: billing-service
     static_configs:
-      - targets: ["billing-service:3002"]
+      - targets: ["host.docker.internal:3002"]
+        labels:
+          service: billing-service
     metrics_path: /metrics
-    relabel_configs:
-      - source_labels: [__address__]
-        regex: '([^:]+).*'
-        target_label: service
-        replacement: '$1'

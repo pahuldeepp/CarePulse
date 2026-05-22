@@ -6,7 +6,7 @@ sre-up:  ## Bring up the full observability stack
 	$(COMPOSE) up -d postgres kafka connect prometheus grafana
 	@echo
 	@echo "Stack starting. Once healthy:"
-	@echo "  Grafana:    http://localhost:3000  (admin/admin)"
+	@echo "  Grafana:    http://localhost:3000  (admin/carepack)"
 	@echo "  Prometheus: http://localhost:9090"
 	@echo "  Targets:    http://localhost:9090/targets"
 	@echo

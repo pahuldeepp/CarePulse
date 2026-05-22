@@ -154,26 +154,6 @@ services:
       retries: 10
       start_period: 60s
 
-  # ── OpenSearch (search-indexer target) ───────────────────────────────────────
-  opensearch:
-    image: opensearchproject/opensearch:2.13.0
-    container_name: carepack-opensearch
-    restart: unless-stopped
-    environment:
-      discovery.type: single-node
-      OPENSEARCH_INITIAL_ADMIN_PASSWORD: CarePulse_Admin1!
-      plugins.security.disabled: "true"   # dev-only; enable TLS in prod
-    ports:
-      - "9200:9200"
-    volumes:
-      - opensearch_data:/usr/share/opensearch/data
-    healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9200/_cluster/health || exit 1"]
-      interval: 15s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
-
   # ── postgres-exporter — exposes pg_stat_statements to Prometheus ─────────────
   postgres-exporter:
     image: prometheuscommunity/postgres-exporter:v0.15.0
@@ -258,4 +238,3 @@ volumes:
   opensearch_data:
   prometheus_data:
   grafana_data:
-  opensearch_data:

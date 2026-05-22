@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { createLogger, format, transports } from 'winston';
 import { AppModule } from './app.module';
+import { instrument, metricsHandler } from './common/metrics.js';
 import { provisionKafkaTopics } from './kafka/kafka-admin';
 
 const logger = createLogger({
@@ -20,7 +21,9 @@ async function bootstrap() {
 
   const app = await NestFactory.create(AppModule, { logger: false });
 
-  // Enable Nest shutdown hooks so PrismaService.onModuleDestroy fires on SIGTERM
+  app.use(instrument);
+  app.use('/metrics', metricsHandler);
+
   app.enableShutdownHooks();
   app.setGlobalPrefix('v1');
 

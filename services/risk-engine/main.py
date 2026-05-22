@@ -262,6 +262,12 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="risk-engine", version="0.1.0", lifespan=lifespan)
 instrument_fastapi(app)
 
+from prometheus_fastapi_instrumentator import Instrumentator  # noqa: E402
+
+Instrumentator(
+    excluded_handlers=["/metrics", "/healthz"],
+).instrument(app, metric_namespace="", metric_subsystem="").expose(app, endpoint="/metrics", include_in_schema=False)
+
 
 @app.get("/healthz")
 async def health():

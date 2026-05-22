@@ -82,8 +82,12 @@ app = FastAPI(title="fhir-gateway", version="0.1.0", lifespan=lifespan)
 instrument_fastapi(app)
 
 from audit_middleware import AuditMiddleware  # noqa: E402
+from prometheus_fastapi_instrumentator import Instrumentator  # noqa: E402
 
 app.add_middleware(AuditMiddleware)
+Instrumentator(
+    excluded_handlers=["/metrics", "/healthz"],
+).instrument(app, metric_namespace="", metric_subsystem="").expose(app, endpoint="/metrics", include_in_schema=False)
 
 
 @app.get("/healthz")

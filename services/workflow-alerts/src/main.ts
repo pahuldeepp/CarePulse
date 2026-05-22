@@ -3,6 +3,7 @@ import { NestFactory } from '@nestjs/core';
 import { MicroserviceOptions, Transport } from '@nestjs/microservices';
 import { createLogger, format, transports } from 'winston';
 import { AppModule } from './app.module';
+import { instrument, metricsHandler } from './common/metrics.js';
 
 const logger = createLogger({
   format: format.combine(format.timestamp(), format.json()),
@@ -11,6 +12,10 @@ const logger = createLogger({
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { logger: false });
+
+  app.use(instrument);
+  app.use('/metrics', metricsHandler);
+
   app.setGlobalPrefix('v1');
 
   // Kafka microservice — consumes domain.risk.scored published by risk-engine.

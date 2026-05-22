@@ -383,8 +383,11 @@ async function main() {
 
   app.use(express.json());
 
-  // Health check — no auth required
+  const { instrument, metricsHandler } = require('./middleware/metrics');
+  app.use(instrument);
+
   app.get('/healthz', (_req, res) => res.sendStatus(200));
+  app.get('/metrics', metricsHandler);
 
   // ── WebSocket server for GraphQL subscriptions ────────────────────────────
   // onConnect verifies the JWT from connectionParams before allowing the

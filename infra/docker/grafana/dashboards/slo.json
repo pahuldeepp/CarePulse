@@ -141,6 +141,110 @@
         }
       ],
       "fieldConfig": { "defaults": { "unit": "short" } }
+    },
+    {
+      "id": 100,
+      "title": "Error-budget burn — fast (1h window)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 12, "w": 12, "h": 8 },
+      "description": "Ratio of error rate to allowed budget. >1 = burning faster than budget. >14.4 fires a page.",
+      "targets": [
+        {
+          "expr": "(sum(rate(http_requests_total{service=\"gateway-graphql\",code=~\"5..\"}[1h])) / sum(rate(http_requests_total{service=\"gateway-graphql\"}[1h]))) / (1 - 0.999)",
+          "legendFormat": "gateway-graphql"
+        },
+        {
+          "expr": "(sum(rate(http_requests_total{service=\"patient-service\",code=~\"5..\"}[1h])) / sum(rate(http_requests_total{service=\"patient-service\"}[1h]))) / (1 - 0.999)",
+          "legendFormat": "patient-service"
+        },
+        {
+          "expr": "(sum(rate(http_requests_total{service=\"telemetry-ingest\",code=~\"5..\"}[1h])) / sum(rate(http_requests_total{service=\"telemetry-ingest\"}[1h]))) / (1 - 0.9995)",
+          "legendFormat": "telemetry-ingest"
+        },
+        {
+          "expr": "(sum(rate(alerts_created_total{service=\"workflow-alerts\",status!=\"ok\"}[1h])) / sum(rate(alerts_created_total{service=\"workflow-alerts\"}[1h]))) / (1 - 0.9995)",
+          "legendFormat": "workflow-alerts (creation)"
+        },
+        {
+          "expr": "(sum(rate(risk_scored_total{service=\"risk-engine\",status!=\"ok\"}[1h])) / sum(rate(risk_scored_total{service=\"risk-engine\"}[1h]))) / (1 - 0.999)",
+          "legendFormat": "risk-engine"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "orange", "value": 6 },
+              { "color": "red", "value": 14.4 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 101,
+      "title": "Remaining error budget (30d)",
+      "type": "gauge",
+      "gridPos": { "x": 12, "y": 12, "w": 12, "h": 8 },
+      "description": "1 - (errors / allowed_errors over 30d). 0 = budget exhausted; feature freeze.",
+      "targets": [
+        {
+          "expr": "1 - ((sum(increase(http_requests_total{service=\"gateway-graphql\",code=~\"5..\"}[30d])) / sum(increase(http_requests_total{service=\"gateway-graphql\"}[30d]))) / (1 - 0.999))",
+          "legendFormat": "gateway-graphql"
+        },
+        {
+          "expr": "1 - ((sum(increase(http_requests_total{service=\"patient-service\",code=~\"5..\"}[30d])) / sum(increase(http_requests_total{service=\"patient-service\"}[30d]))) / (1 - 0.999))",
+          "legendFormat": "patient-service"
+        },
+        {
+          "expr": "1 - ((sum(increase(alerts_created_total{service=\"workflow-alerts\",status!=\"ok\"}[30d])) / sum(increase(alerts_created_total{service=\"workflow-alerts\"}[30d]))) / (1 - 0.9995))",
+          "legendFormat": "workflow-alerts"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "red", "value": null },
+              { "color": "orange", "value": 0.1 },
+              { "color": "yellow", "value": 0.25 },
+              { "color": "green", "value": 0.5 }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "id": 102,
+      "title": "alert-projector consumer lag (workflow-alerts.dynamo_projection_lag SLI)",
+      "type": "timeseries",
+      "gridPos": { "x": 0, "y": 20, "w": 24, "h": 6 },
+      "description": "Sustained > 100 → page. Lag here = NEWS2 escalation Lambda fires late.",
+      "targets": [
+        {
+          "expr": "max(kafka_consumer_records_lag_max{service=\"workflow-alerts\",topic=\"cdc.outbox.events\",group=\"alert-projector\"})",
+          "legendFormat": "max lag (msgs)"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "red", "value": 100 }
+            ]
+          }
+        }
+      }
     }
   ]
 }

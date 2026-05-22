@@ -1,5 +1,5 @@
 groups:
-  - name: slo-burn-rate
+  - name: slo-burn-rate-gateway-graphql
     interval: 30s
     rules:
       - alert: GatewayGraphQLAvailabilityFastBurn
@@ -10,12 +10,10 @@ groups:
             sum(rate(http_requests_total{service="gateway-graphql"}[1h]))
           ) > (14.4 * (1 - 0.999))
         for: 2m
-        labels:
-          severity: page
-          slo: gateway-graphql.availability
+        labels: { severity: page, slo: gateway-graphql.availability }
         annotations:
           summary: gateway-graphql burning error budget 14.4x over 1h
-          runbook: https://github.com/pahuldeepp/Carepack/blob/main/docs/runbooks/gateway-graphql-availability.md
+          runbook: https://github.com/pahuldeepp/CarePulse/blob/main/docs/runbooks/gateway-graphql-availability.md
 
       - alert: GatewayGraphQLAvailabilitySlowBurn
         expr: |
@@ -25,8 +23,145 @@ groups:
             sum(rate(http_requests_total{service="gateway-graphql"}[6h]))
           ) > (6 * (1 - 0.999))
         for: 15m
-        labels:
-          severity: ticket
-          slo: gateway-graphql.availability
+        labels: { severity: ticket, slo: gateway-graphql.availability }
         annotations:
           summary: gateway-graphql burning error budget 6x over 6h
+
+  - name: slo-burn-rate-patient-service
+    interval: 30s
+    rules:
+      - alert: PatientServiceAvailabilityFastBurn
+        expr: |
+          (
+            sum(rate(http_requests_total{service="patient-service",code=~"5.."}[1h]))
+            /
+            sum(rate(http_requests_total{service="patient-service"}[1h]))
+          ) > (14.4 * (1 - 0.999))
+        for: 2m
+        labels: { severity: page, slo: patient-service.availability }
+        annotations:
+          summary: patient-service burning error budget 14.4x over 1h
+
+      - alert: PatientServiceAvailabilitySlowBurn
+        expr: |
+          (
+            sum(rate(http_requests_total{service="patient-service",code=~"5.."}[6h]))
+            /
+            sum(rate(http_requests_total{service="patient-service"}[6h]))
+          ) > (6 * (1 - 0.999))
+        for: 15m
+        labels: { severity: ticket, slo: patient-service.availability }
+        annotations:
+          summary: patient-service burning error budget 6x over 6h
+
+  - name: slo-burn-rate-telemetry-ingest
+    interval: 30s
+    rules:
+      - alert: TelemetryIngestAvailabilityFastBurn
+        expr: |
+          (
+            sum(rate(http_requests_total{service="telemetry-ingest",code=~"5.."}[1h]))
+            /
+            sum(rate(http_requests_total{service="telemetry-ingest"}[1h]))
+          ) > (14.4 * (1 - 0.9995))
+        for: 2m
+        labels: { severity: page, slo: telemetry-ingest.availability }
+        annotations:
+          summary: telemetry-ingest burning error budget 14.4x over 1h
+
+      - alert: TelemetryIngestAvailabilitySlowBurn
+        expr: |
+          (
+            sum(rate(http_requests_total{service="telemetry-ingest",code=~"5.."}[6h]))
+            /
+            sum(rate(http_requests_total{service="telemetry-ingest"}[6h]))
+          ) > (6 * (1 - 0.9995))
+        for: 15m
+        labels: { severity: ticket, slo: telemetry-ingest.availability }
+
+  - name: slo-burn-rate-workflow-alerts
+    interval: 30s
+    rules:
+      - alert: WorkflowAlertsCreationFastBurn
+        expr: |
+          (
+            sum(rate(alerts_created_total{service="workflow-alerts",status!="ok"}[1h]))
+            /
+            sum(rate(alerts_created_total{service="workflow-alerts"}[1h]))
+          ) > (14.4 * (1 - 0.9995))
+        for: 2m
+        labels: { severity: page, slo: workflow-alerts.alert_creation_availability }
+        annotations:
+          summary: workflow-alerts creation burning 14.4x over 1h — missed alerts likely
+
+      - alert: WorkflowAlertsProjectionLagPage
+        expr: |
+          max(kafka_consumer_records_lag_max{service="workflow-alerts",topic="cdc.outbox.events",group="alert-projector"}) > 100
+        for: 5m
+        labels: { severity: page, slo: workflow-alerts.dynamo_projection_lag }
+        annotations:
+          summary: alert-projector consumer lag > 100 for 5m — NEWS2 escalation Lambda will fire late
+          runbook: https://github.com/pahuldeepp/CarePulse/blob/main/docs/runbooks/kafka-consumer-lag.md
+
+  - name: slo-burn-rate-risk-engine
+    interval: 30s
+    rules:
+      - alert: RiskEngineScoringFastBurn
+        expr: |
+          (
+            sum(rate(risk_scored_total{service="risk-engine",status!="ok"}[1h]))
+            /
+            sum(rate(risk_scored_total{service="risk-engine"}[1h]))
+          ) > (14.4 * (1 - 0.999))
+        for: 2m
+        labels: { severity: page, slo: risk-engine.scoring_availability }
+
+      - alert: RiskEngineScoringSlowBurn
+        expr: |
+          (
+            sum(rate(risk_scored_total{service="risk-engine",status!="ok"}[6h]))
+            /
+            sum(rate(risk_scored_total{service="risk-engine"}[6h]))
+          ) > (6 * (1 - 0.999))
+        for: 15m
+        labels: { severity: ticket, slo: risk-engine.scoring_availability }
+
+  - name: slo-burn-rate-fhir-gateway
+    interval: 30s
+    rules:
+      - alert: FhirGatewayAvailabilitySlowBurn
+        expr: |
+          (
+            sum(rate(http_requests_total{service="fhir-gateway",code=~"5.."}[6h]))
+            /
+            sum(rate(http_requests_total{service="fhir-gateway"}[6h]))
+          ) > (6 * (1 - 0.995))
+        for: 15m
+        labels: { severity: ticket, slo: fhir-gateway.availability }
+        annotations:
+          summary: fhir-gateway availability slow burn — check partner EHR health first
+
+  - name: slo-burn-rate-billing-service
+    interval: 30s
+    rules:
+      - alert: BillingServiceAvailabilitySlowBurn
+        expr: |
+          (
+            sum(rate(http_requests_total{service="billing-service",code=~"5.."}[6h]))
+            /
+            sum(rate(http_requests_total{service="billing-service"}[6h]))
+          ) > (6 * (1 - 0.995))
+        for: 15m
+        labels: { severity: ticket, slo: billing-service.availability }
+
+      - alert: BillingStripeWebhookFastBurn
+        expr: |
+          (
+            sum(rate(stripe_webhook_processed_total{service="billing-service",status!="ok"}[1h]))
+            /
+            sum(rate(stripe_webhook_processed_total{service="billing-service"}[1h]))
+          ) > (14.4 * (1 - 0.999))
+        for: 2m
+        labels: { severity: page, slo: billing-service.stripe_webhook_processing }
+        annotations:
+          summary: Stripe webhook failures > budget — subscription state diverging from Stripe

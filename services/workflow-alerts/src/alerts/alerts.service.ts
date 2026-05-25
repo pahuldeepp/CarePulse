@@ -67,14 +67,18 @@ export class AlertsService {
       return row;
     });
 
-    await this.redis.publish(`alerts:${event.tenant_id}`, {
-      id: alert.alert_id,
-      severity: event.risk_level,
-      status: 'open',
-      news2: event.news2,
-      qsofa: event.qsofa,
-      triggeredAt: event.scored_at,
-    });
+    try {
+      await this.redis.publish(`alerts:${event.tenant_id}`, {
+        id: alert.alert_id,
+        severity: event.risk_level,
+        status: 'open',
+        news2: event.news2,
+        qsofa: event.qsofa,
+        triggeredAt: event.scored_at,
+      });
+    } catch (err) {
+      this.logger.error(`redis_publish_failed tenant=${event.tenant_id} err=${err}`);
+    }
 
     this.logger.log(
       `alert_created alert_id=${alert.alert_id} severity=${event.risk_level} device_id=${event.device_id}`,
@@ -89,7 +93,7 @@ export class AlertsService {
       await tx.$executeRaw`SELECT set_config('app.current_tenant_id', ${tenantId}, true)`;
 
       const row = await tx.alert.update({
-        where: { alert_id: alertId },
+        where: { alert_id: alertId, tenant_id: tenantId },
         data: { acknowledged_at: now, acknowledged_by: nurseId },
       });
 

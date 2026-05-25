@@ -10,5 +10,5 @@ ALTER TABLE "outbox_events" ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS outbox_events_tenant_isolation ON "outbox_events";
 
 CREATE POLICY outbox_events_tenant_isolation ON "outbox_events"
-  USING (tenant_id = current_setting('app.current_tenant_id', true))
-  WITH CHECK (tenant_id = current_setting('app.current_tenant_id', true));
+  USING (tenant_id = current_setting('app.current_tenant_id', false))
+  WITH CHECK (tenant_id = current_setting('app.current_tenant_id', false));

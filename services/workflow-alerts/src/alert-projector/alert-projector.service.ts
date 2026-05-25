@@ -1,5 +1,5 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
-import { DynamoDBClient, PutItemCommand } from '@aws-sdk/client-dynamodb';
+import { DynamoDBClient, PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { Kafka, Producer } from 'kafkajs';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -92,11 +92,11 @@ export class AlertProjectorService implements OnModuleInit, OnModuleDestroy {
       }
     } catch (err) {
       await this.sendToDlq(envelope, err);
-      await this.prisma.processedEvent.create({ data: { id: envelope.id } });
+      await this.markProcessed(envelope.id);
       return;
     }
 
-    await this.prisma.processedEvent.create({ data: { id: envelope.id } });
+    await this.markProcessed(envelope.id);
     this.logger.log(`projected event_id=${envelope.id} type=${envelope.event_type}`);
   }
 
@@ -118,17 +118,16 @@ export class AlertProjectorService implements OnModuleInit, OnModuleDestroy {
   private async writeAcknowledged(p: AlertAcknowledgedPayload): Promise<void> {
     try {
       await this.dynamo.send(
-        new PutItemCommand({
+        new UpdateItemCommand({
           TableName: this.alertsTable,
-          Item: {
-            alert_id:        { S: p.alert_id },
-            acknowledged_at: { S: p.acknowledged_at },
-            acknowledged_by: { S: p.acknowledged_by },
-          },
+          Key: { alert_id: { S: p.alert_id } },
+          UpdateExpression:
+            'SET acknowledged_at = :ack_at, acknowledged_by = :ack_by',
           ConditionExpression:
-            'attribute_not_exists(acknowledged_at) OR acknowledged_at <= :incoming',
+            'attribute_not_exists(acknowledged_at) OR acknowledged_at <= :ack_at',
           ExpressionAttributeValues: {
-            ':incoming': { S: p.acknowledged_at },
+            ':ack_at': { S: p.acknowledged_at },
+            ':ack_by': { S: p.acknowledged_by },
           },
         }),
       );
@@ -145,6 +144,17 @@ export class AlertProjectorService implements OnModuleInit, OnModuleDestroy {
         return;
       }
       throw err;
+    }
+  }
+
+  private async markProcessed(id: string): Promise<void> {
+    try {
+      await this.prisma.processedEvent.create({ data: { id } });
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'code' in e && (e as { code: string }).code === 'P2002') {
+        return;
+      }
+      throw e;
     }
   }
 

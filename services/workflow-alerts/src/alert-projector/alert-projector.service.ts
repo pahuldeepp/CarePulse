@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/common';
 import { DynamoDBClient, PutItemCommand, UpdateItemCommand } from '@aws-sdk/client-dynamodb';
 import { Kafka, Producer } from 'kafkajs';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 
 export interface AlertCreatedPayload {
@@ -151,7 +152,7 @@ export class AlertProjectorService implements OnModuleInit, OnModuleDestroy {
     try {
       await this.prisma.processedEvent.create({ data: { id } });
     } catch (e: unknown) {
-      if (e && typeof e === 'object' && 'code' in e && (e as { code: string }).code === 'P2002') {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         return;
       }
       throw e;

@@ -39,9 +39,6 @@ check_toxi() {
 
 register_proxies() {
   log "Registering Toxiproxy proxies..."
-  for proxy in kafka postgres redis; do
-    name=$(jq -r '.name' "chaos/proxies.json" 2>/dev/null || echo "$proxy")
-  done
   # Register all three proxies from proxies.json (idempotent — 409 is OK)
   while IFS= read -r proxy_json; do
     name=$(echo "$proxy_json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['name'])")
@@ -134,21 +131,6 @@ measure_pg_rtt_ms() {
   PGPASSWORD=carepack psql -h localhost -p "$port" -U carepack -c "SELECT 1" carepack > /dev/null 2>&1 || true
   t_end=$(python3 -c "import time; print(int(time.monotonic()*1000))")
   echo $((t_end - t_start))
-}
-
-# Measure TCP connect-only latency (for non-protocol tests)
-measure_tcp_connect_ms() {
-  local host="$1" port="$2"
-  python3 -c "
-import socket, time
-t0 = time.monotonic()
-try:
-    s = socket.create_connection(('${host}', ${port}), timeout=5)
-    s.close()
-    print(int((time.monotonic() - t0) * 1000))
-except Exception:
-    print(9999)
-"
 }
 
 # Assert TCP connection to proxy is refused / times out (service down)

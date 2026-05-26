@@ -62,11 +62,7 @@ chaos-setup:  ## Register Kafka / Postgres / Redis proxies in Toxiproxy
 	./scripts/sre/chaos-setup.sh
 
 chaos-reset:  ## Remove all active toxics (restore normal operation)
-	@echo "Resetting all toxics..."
-	@curl -sf http://localhost:8474/proxies | \
-	  python3 -c "import sys,json; [print(n) for n in json.load(sys.stdin).keys()]" | \
-	  xargs -I{} sh -c 'curl -sf http://localhost:8474/proxies/{}/toxics | python3 -c "import sys,json; [print(t[\"name\"]) for t in json.load(sys.stdin)]" | xargs -I%% curl -sf -X DELETE http://localhost:8474/proxies/{}/toxics/%%'
-	@echo "All toxics removed."
+	./scripts/sre/chaos-reset.sh
 
 chaos-kafka-lag:  ## Inject 500 ms Kafka latency (stresses alert-pipeline SLO)
 	@python3 -c "import json; d=json.load(open('chaos/kafka-lag.json')); print(json.dumps(d['toxic']))" | \

@@ -45,12 +45,8 @@ Completed:
 - S9 SLOs + error-budget policy + burn-rate alerts + Grafana dashboards
 - S10 chaos scenarios (Toxiproxy) + synthetic probes (Blackbox Exporter) +
       postmortem template + on-call guide + game-day drill (9/9 pass)
-- S5 Debezium CDC + outbox reaper + DLQ + read-model-builder
-- S6 fhir-gateway CDS hooks + search-indexer OpenSearch + GraphQL searchPatients
-- S7 billing-service (Stripe) + RLS tenant isolation
-- S8 HIPAA audit trail + fhir-gateway middleware + chaos baseline
 
-Release milestones still ahead: R5 S9–S10 (this), R6 S11–S12 HIPAA + E2E, R7 S13–S14 multi-region.
+Release milestones still ahead: R6 S11–S12 HIPAA + E2E, R7 S13–S14 multi-region.
 
 ## Coding Standards
 

@@ -93,7 +93,7 @@ scrape_configs:
       - target_label: __address__
         replacement: blackbox:9115
       - source_labels: [__param_target]
-        regex: 'http://[^:]+:\d+/health'
+        regex: 'http://[^/]+/(.+)/health'
         target_label: service
         replacement: '$1'
       - source_labels: [instance]

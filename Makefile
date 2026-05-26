@@ -5,12 +5,14 @@
 COMPOSE := docker compose -f infra/docker/docker-compose.yml
 
 sre-up:  ## Bring up the full observability stack
-	$(COMPOSE) up -d postgres kafka connect prometheus grafana
+	$(COMPOSE) up -d postgres kafka connect prometheus grafana blackbox
 	@echo
 	@echo "Stack starting. Once healthy:"
 	@echo "  Grafana:    http://localhost:3000  (admin/carepack)"
 	@echo "  Prometheus: http://localhost:9090"
 	@echo "  Targets:    http://localhost:9090/targets"
+	@echo "  Probes:     http://localhost:9090/targets#blackbox-health"
+	@echo "  Blackbox:   http://localhost:9115"
 	@echo
 	@echo "Watch readiness:  make sre-status"
 
@@ -19,6 +21,16 @@ sre-down:  ## Stop the observability stack
 
 sre-status:  ## Show health of the SRE stack
 	@$(COMPOSE) ps prometheus grafana postgres kafka connect
+
+sre-probes:  ## Open the Blackbox probe status in Prometheus
+	@open http://localhost:9090/targets#blackbox-health 2>/dev/null \
+	  || xdg-open http://localhost:9090/targets#blackbox-health 2>/dev/null \
+	  || echo "Open manually: http://localhost:9090/targets#blackbox-health"
+
+sre-uptime:  ## Open the Grafana uptime dashboard
+	@open http://localhost:3000/d/carepulse-uptime 2>/dev/null \
+	  || xdg-open http://localhost:3000/d/carepulse-uptime 2>/dev/null \
+	  || echo "Open manually: http://localhost:3000/d/carepulse-uptime"
 
 sre-grafana:  ## Open the SLO dashboard in your browser
 	@open http://localhost:3000/d/carepulse-slo 2>/dev/null \

@@ -168,6 +168,23 @@ services:
     ports:
       - "9187:9187"
 
+  # ── Blackbox Exporter — synthetic /health probes for all services ────────────
+  blackbox:
+    image: prom/blackbox-exporter:v0.25.0
+    container_name: carepack-blackbox
+    restart: unless-stopped
+    command:
+      - "--config.file=/etc/blackbox/blackbox.yml"
+    ports:
+      - "9115:9115"
+    volumes:
+      - ./blackbox/blackbox.yml:/etc/blackbox/blackbox.yml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9115/-/healthy || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   # ── Prometheus ────────────────────────────────────────────────────────────────
   prometheus:
     image: prom/prometheus:v2.51.0
@@ -182,9 +199,11 @@ services:
       - "9090:9090"
     volumes:
       - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./prometheus/rules:/etc/prometheus/rules:ro
       - prometheus_data:/prometheus
     depends_on:
       - postgres-exporter
+      - blackbox
 
   # ── Grafana ───────────────────────────────────────────────────────────────────
   # Dashboard: http://localhost:3000  admin / carepack

@@ -1,0 +1,31 @@
+groups:
+  - name: synthetic-probes
+    interval: 30s
+    rules:
+      # Fires when any service /health endpoint stops returning 200
+      # for more than 1 minute (2 consecutive failed scrapes).
+      - alert: ServiceHealthProbeDown
+        expr: probe_success{job="blackbox-health"} == 0
+        for: 1m
+        labels:
+          severity: page
+        annotations:
+          summary: "{{ $labels.instance }} health probe failing"
+          description: >
+            The /health endpoint at {{ $labels.instance }} has not returned
+            HTTP 200 for more than 1 minute. The service may be down or
+            unhealthy. Check logs and the Grafana uptime panel.
+          runbook: https://github.com/pahuldeepp/CarePulse/blob/main/docs/runbooks/on-call-guide.md
+
+      # Fires when probe latency is high — service is up but slow to respond
+      - alert: ServiceHealthProbeSlow
+        expr: probe_duration_seconds{job="blackbox-health"} > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "{{ $labels.instance }} health probe taking > 2s"
+          description: >
+            Health probe at {{ $labels.instance }} is responding in
+            {{ $value | humanizeDuration }}. The service is up but may be
+            under load or degraded.

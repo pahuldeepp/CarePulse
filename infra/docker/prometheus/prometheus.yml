@@ -68,3 +68,35 @@ scrape_configs:
         labels:
           service: billing-service
     metrics_path: /metrics
+
+  # ── Blackbox synthetic probes — /health endpoint for every service ────────────
+  # probe_success == 0 means the service is down or /health returned non-200.
+  # Prometheus fires ServiceHealthProbeDown within one scrape interval (30s).
+  - job_name: blackbox-health
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+          - http://host.docker.internal:4000/health   # gateway-graphql
+          - http://host.docker.internal:3000/health   # patient-service
+          - http://host.docker.internal:3001/health   # workflow-alerts
+          - http://host.docker.internal:3002/health   # billing-service
+          - http://host.docker.internal:8080/health   # telemetry-ingest
+          - http://host.docker.internal:8001/health   # risk-engine
+          - http://host.docker.internal:8002/health   # fhir-gateway
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox:9115
+      - source_labels: [__param_target]
+        regex: 'http://[^:]+:\d+/health'
+        target_label: service
+        replacement: '$1'
+      - source_labels: [instance]
+        regex: 'http://[^:]+:(\d+)/.*'
+        target_label: port
+        replacement: '$1'

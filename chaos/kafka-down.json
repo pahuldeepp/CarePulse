@@ -1,0 +1,13 @@
+{
+  "_description": "100% connection reset on Kafka. Simulates total broker failure. Expected: alert-projector DLQ path fires, events land in cdc.outbox.events.dlq Kafka topic (if broker recovers), processedEvent dedup prevents double-processing on replay. Error budget burns at 14.4x.",
+  "_slo": "alert-pipeline availability SLO (99.9%)",
+  "_expected_burn_rate": "14.4x on 1h window — critical page-level burn",
+  "proxy": "kafka",
+  "toxic": {
+    "name": "kafka-down",
+    "type": "reset_peer",
+    "stream": "upstream",
+    "toxicity": 1.0,
+    "attributes": {}
+  }
+}

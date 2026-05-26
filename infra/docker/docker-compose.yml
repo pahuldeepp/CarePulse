@@ -207,6 +207,31 @@ services:
       - prometheus
       - postgres
 
+  # ── Toxiproxy — chaos proxy for Kafka / Postgres / Redis ─────────────────────
+  # REST API on :8474 lets scripts inject latency, packet loss, and outages.
+  # Proxied ports: 19092 (Kafka), 15432 (Postgres), 16379 (Redis)
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    container_name: carepack-toxiproxy
+    restart: unless-stopped
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "8474:8474"    # Toxiproxy REST control API
+      - "19092:19092"  # Kafka proxy
+      - "15432:15432"  # Postgres proxy
+      - "16379:16379"  # Redis proxy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8474/version || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   # ── OpenSearch (S6) ───────────────────────────────────────────────────────────
   # search-indexer bulk-indexes patient + alert events here.
   # Security plugin disabled for local dev — enable for production.

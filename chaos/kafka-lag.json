@@ -1,0 +1,16 @@
+{
+  "_description": "500 ms upstream latency on Kafka. Simulates broker slowdown or network congestion. Expected: alert-pipeline p99 latency breaches 200 ms SLO threshold. Risk engine backpressure visible in Prometheus.",
+  "_slo": "alert-pipeline latency SLO (p99 < 200 ms)",
+  "_expected_burn_rate": "> 1x on 1h window within 5 min of injection",
+  "proxy": "kafka",
+  "toxic": {
+    "name": "kafka-lag",
+    "type": "latency",
+    "stream": "upstream",
+    "toxicity": 1.0,
+    "attributes": {
+      "latency": 500,
+      "jitter": 50
+    }
+  }
+}

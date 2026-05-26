@@ -1,0 +1,16 @@
+{
+  "_description": "200 ms upstream latency on Postgres. Simulates DB overload or lock contention. Expected: patient-service and workflow-alerts write latency breaches p99 SLO. RLS policy evaluation adds to the overhead.",
+  "_slo": "patient-service write latency SLO (p99 < 500 ms)",
+  "_expected_burn_rate": "> 1x on 1h window within 10 min of injection",
+  "proxy": "postgres",
+  "toxic": {
+    "name": "postgres-slow",
+    "type": "latency",
+    "stream": "upstream",
+    "toxicity": 1.0,
+    "attributes": {
+      "latency": 200,
+      "jitter": 20
+    }
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "_description": "Redis connection timeout via zero-bandwidth toxic. Simulates Redis crash or network partition. Expected: alerts.service redis.publish try/catch fires, error is logged, alert is NOT lost (already persisted in Postgres). Non-critical path — SLO unaffected but error rate metric rises.",
+  "_slo": "Non-critical — validates resilience of alerts.service Redis error handling",
+  "_expected_burn_rate": "0 (alert data safe) — error log count increases",
+  "proxy": "redis",
+  "toxic": {
+    "name": "redis-down",
+    "type": "bandwidth",
+    "stream": "upstream",
+    "toxicity": 1.0,
+    "attributes": {
+      "rate": 0
+    }
+  }
+}
